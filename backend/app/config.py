@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     database_url: str = Field(default="", validation_alias="DATABASE_URL")
     device: Literal["auto", "mps", "cpu"] = "auto"
     default_engine: str = "xtts"
+    # Per-engine device override (XTTS on MPS has known hangs; benchmark decides).
+    xtts_device: Literal["auto", "mps", "cpu"] | None = None
     pause_sentence_ms: int = 350
     pause_paragraph_ms: int = 800
     features: set[str] = set()

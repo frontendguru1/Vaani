@@ -4,7 +4,7 @@ init-db          create data dirs and bring the schema to head
 migrate          apply pending migrations (alias of init-db for an existing DB)
 make-migration   autogenerate a new migration:  vaani make-migration "add voices"
 reset-dev-data   DELETE all voices, generations and the DB (keeps downloaded models)
-check            consistency check (schema at head; orphaned files/rows from Phase 2)
+check            schema at head + orphaned files/rows  [--fix-orphans]
 """
 
 import argparse
@@ -80,11 +80,26 @@ def cmd_reset_dev_data(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_check(_args: argparse.Namespace) -> int:
+def cmd_check(args: argparse.Namespace) -> int:
     ok, current, head = schema_is_current()
     print(f"schema: {'OK' if ok else 'BEHIND'} (db={current}, head={head})")
-    # Orphaned file/row detection is added with the voices tables in Phase 2.
-    return 0 if ok else 1
+    if not ok:
+        return 1
+    from app.db import SessionLocal
+    from app.services import maintenance
+
+    with SessionLocal() as session:
+        report = maintenance.check(session)
+    for d in report.orphan_dirs:
+        print(f"  orphan folder (no DB row): {d}")
+    for m in report.missing_files:
+        print(f"  missing file: {m}")
+    if report.ok:
+        print("files: OK (every file has a row, every row has its files)")
+        return 0
+    if args.fix_orphans and report.orphan_dirs:
+        print(f"removed {maintenance.remove_orphans(report)} orphaned files")
+    return 0 if not report.missing_files and args.fix_orphans else 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -100,7 +115,9 @@ def main(argv: list[str] | None = None) -> int:
     reset = sub.add_parser("reset-dev-data")
     reset.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
     reset.set_defaults(func=cmd_reset_dev_data)
-    sub.add_parser("check").set_defaults(func=cmd_check)
+    chk = sub.add_parser("check")
+    chk.add_argument("--fix-orphans", action="store_true", help="delete orphaned folders")
+    chk.set_defaults(func=cmd_check)
     args = parser.parse_args(argv)
     return args.func(args)
 

@@ -11,6 +11,14 @@ dependencies = [
     "pydantic-settings>=2.4",
     "python-ulid>=3.0",
     "python-multipart>=0.0.9",
+    "torch>=2.14.1",
+    "torchaudio>=2.11.0",
+    "coqui-tts[codec]>=0.27.5",
+    # coqui-tts 0.27.5 imports transformers.pytorch_utils.isin_mps_friendly, removed in 5.x
+    "transformers>=4.57,<5",
+    "numpy>=2.4.6",
+    "soundfile>=0.14.0",
+    "librosa>=0.11.0",
 ]
 
 [dependency-groups]

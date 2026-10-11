@@ -2,9 +2,9 @@
 
 from fastapi import APIRouter
 
-from app.api.v1 import health
+from app.api.v1 import engines, generations, health, jobs, voices
 
 api_router = APIRouter(prefix="/api/v1")
 
-for module in (health,):
+for module in (health, engines, voices, generations, jobs):
     api_router.include_router(module.router)

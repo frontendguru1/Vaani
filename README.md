@@ -2,7 +2,7 @@
 
 A personal voice-cloning studio that runs **entirely on your Mac**. Give it a few clean clips of someone's voice (with their permission). Then type a script in English, Hindi or a mix of both, and Vaani reads it back in that voice. No cloud services, no accounts, and it works offline once the models are downloaded.
 
-> **Status:** Phase 0 (scaffolding) is done. The app starts, the database is set up, and the hello page shows system health. Voice cloning arrives in the next phases.
+> **Status:** the backend works end to end. You can create a voice, generate speech in it with live progress, browse history and delete everything. The web interface for these is being built next (Phase 3); until then the backend can be used through its API at http://127.0.0.1:8000/docs.
 
 ![Screenshot placeholder](docs/screenshot.png)
 
@@ -24,7 +24,7 @@ A personal voice-cloning studio that runs **entirely on your Mac**. Give it a fe
 
 - macOS on Apple Silicon (built and tested on an M1 Pro, 16 GB)
 - [Homebrew](https://brew.sh)
-- About **10 GB** of free disk space once the voice models are installed
+- About **10 GB** of free disk space once the voice models are installed (XTTS-v2 alone is 2.1 GB and downloads automatically the first time a voice is created)
 
 ```bash
 brew install ffmpeg uv node@22
@@ -53,6 +53,37 @@ pnpm install
 pnpm dev                        # open http://localhost:5173
 ```
 
+### Optional extra voice engines
+
+XTTS-v2 is built in. Two more engines can be added for comparison. Each lives in its own Python environment, because their libraries clash with XTTS's:
+
+```bash
+# F5-TTS MLX — fast-ish English on Apple Silicon (~1.4 GB model on first use)
+uv venv --python 3.11 .venvs/f5mlx && VIRTUAL_ENV=.venvs/f5mlx uv pip install f5-tts-mlx soundfile
+
+# IndicF5 — Hindi specialist (~1.4 GB). Gated: accept the terms at
+# https://huggingface.co/ai4bharat/IndicF5, create a Read token, then:
+backend/.venv/bin/hf auth login
+uv venv --python 3.10 .venvs/indicf5 && VIRTUAL_ENV=.venvs/indicf5 uv pip install "git+https://github.com/ai4bharat/IndicF5.git" soundfile
+```
+
+Both of these need a short reference clip (≤ 12–15 s) **and the exact words spoken in it**.
+
+### Comparing engines (benchmark)
+
+```bash
+cd backend
+uv run python scripts/benchmark_engines.py --ref ~/clips/me.wav --ref-text "the exact words in the clip"
+```
+
+It speaks a few English, Hindi and Hinglish sentences with every installed engine. It saves the audio to `data/benchmarks/<date-time>/` so you can listen, and prints how long each engine took.
+
+| Measured on the M1 Pro (synthetic reference voice) | Speed |
+|---|---|
+| XTTS-v2 on the Apple GPU (default) | about 2× faster than real time |
+| XTTS-v2 on CPU | about 1.5× slower than real time |
+| F5-TTS MLX | 2.5–5× slower than real time |
+
 ### Tests
 
 ```bash
@@ -64,7 +95,8 @@ cd frontend && pnpm test
 
 ```bash
 cd backend
-uv run vaani check              # is the database schema up to date?
+uv run vaani check              # schema up to date? any orphaned files or missing files?
+uv run vaani check --fix-orphans  # delete folders that no longer belong to any voice
 uv run vaani migrate            # apply database migrations
 uv run vaani reset-dev-data     # wipe all voices, generations and the database (keeps models)
 ```
@@ -90,6 +122,23 @@ frontend/   Web interface (React, TypeScript, Tailwind, Motion)
 data/       Your private data — voices, audio, database, models (never committed)
 ```
 
+## API
+
+Everything is under `/api/v1`. Interactive docs are at http://127.0.0.1:8000/docs.
+
+| Call | What it does |
+|---|---|
+| `POST /voices` | Upload clips (multipart: `name`, `language`, `consent_note`, `files[]`). Returns the voice and a job id |
+| `POST /voices/quality-check` | Rate a single clip without saving it |
+| `GET /voices`, `GET/PATCH/DELETE /voices/{id}` | Voice library. DELETE removes every file and record |
+| `GET /voices/{id}/preview` | Play the reference clip |
+| `POST /generations` | `{voice_id, language, script, engine?, settings?}`. Returns a job id |
+| `GET /generations`, `GET /generations/{id}` | History |
+| `GET /generations/{id}/audio?format=wav\|mp3&download=true` | The result |
+| `POST /generations/{id}/regenerate`, `DELETE /generations/{id}` | |
+| `GET /jobs/{id}`, `GET /jobs/{id}/events` | Job status, and live progress as Server-Sent Events |
+| `GET /engines`, `GET /health` | Installed engines, and system status |
+
 ## Voice models and licenses
 
 | Engine | Good for | Download | License |
@@ -112,12 +161,15 @@ Which engines Vaani ships with depends on a listening test in Phase 1. **Vaani i
 - **The page says "Can't reach the backend":** start it with `cd backend && uv run vaani-dev`.
 - **`pnpm dev` fails with a Node version error:** you're on an older Node. Use the Node 22 PATH line above.
 - **System card shows ffmpeg missing:** run `brew install ffmpeg`.
+- **The first voice takes a minute:** XTTS-v2 is loading, or downloading on the very first run. Later voices and generations reuse the loaded model.
+- **XTTS sounds wrong on the GPU:** force CPU with `VAANI_XTTS_DEVICE=cpu` in `.env` and compare.
+- **IndicF5 shows "gated model":** accept its terms on Hugging Face, then run `backend/.venv/bin/hf auth login`.
 
 ## Roadmap
 
 0. ✅ Scaffolding
-1. Quality spike: compare the voice engines by ear
-2. Backend core: voices, cleanup, quality checks, generation, history
+1. 🎧 Quality spike: the benchmark is built; the listening test on a real voice is still to do
+2. ✅ Backend core: voices, cleanup, quality checks, generation, history
 3. Frontend: voice library, recording, generation studio, history
 4. Polish and extras
 5. Notes on fine-tuning (documentation only)
