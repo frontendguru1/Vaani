@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.config import get_settings
 from app.engines import registry
 from app.models import Generation, GenerationChunk, Job, Voice
-from app.services import audio, storage
+from app.services import audio, pronunciation, storage
 from app.services.chunking import chunk_text
 from app.services.errors import Invalid, NotFound
 from app.services.jobs import JobContext, get_runner, job_handler, on_job_failure
@@ -107,12 +107,15 @@ def create_generation(
     )
     session.add(gen)
     session.flush()
+    entries = pronunciation.list_entries(session)
     for c in chunks:
+        spoken, applied = pronunciation.apply(c.text, language, entries)
         session.add(
             GenerationChunk(
                 generation_id=gen.id,
                 idx=c.index,
                 text=c.text,
+                spoken_text=spoken if applied else None,
                 char_start=c.start,
                 char_end=c.end,
                 pause_after_ms=c.pause_after_ms,
@@ -232,7 +235,7 @@ def run_generation(ctx: JobContext, payload: dict[str, Any]) -> dict[str, Any]:
                 total=n,
             )
             t0 = time.perf_counter()
-            res = engine.synthesize(ch.text, profile, gen.language, **opts)
+            res = engine.synthesize(ch.spoken_text or ch.text, profile, gen.language, **opts)
             compute = time.perf_counter() - t0
             sr = res.sample_rate
             path = out_dir / "chunks" / f"{i:03d}.wav"

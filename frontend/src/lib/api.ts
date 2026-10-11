@@ -146,6 +146,7 @@ export interface Engine {
 export interface Chunk {
   idx: number;
   text: string;
+  spoken_text: string | null;
   char_start: number;
   char_end: number;
   pause_after_ms: number;
@@ -192,6 +193,19 @@ export interface JobEvent {
   data: Record<string, unknown>;
 }
 
+export interface PronunciationEntry {
+  id: string;
+  term: string;
+  replacement: string;
+  language: string | null;
+  case_sensitive: boolean;
+}
+
+export interface PronunciationPreview {
+  text: string;
+  applied: { term: string; replacement: string; count: number }[];
+}
+
 // ---- Endpoints ----
 
 export const api = {
@@ -220,6 +234,17 @@ export const api = {
     request<{ job_id: string }>(`/voices/${voiceId}/transcribe${force ? "?force=true" : ""}`, { method: "POST" }),
   correctTranscript: (voiceId: string, sampleId: string, texts: string[]) =>
     request<VoiceDetail>(`/voices/${voiceId}/samples/${sampleId}/transcript`, json("PUT", { texts })),
+  pronunciations: () => request<PronunciationEntry[]>("/pronunciations"),
+  addPronunciation: (body: Omit<PronunciationEntry, "id">) =>
+    request<PronunciationEntry>("/pronunciations", json("POST", body)),
+  updatePronunciation: (id: string, body: Partial<Omit<PronunciationEntry, "id">>) =>
+    request<PronunciationEntry>(`/pronunciations/${id}`, json("PATCH", body)),
+  deletePronunciation: async (id: string) => {
+    const res = await fetch(`/api/v1/pronunciations/${id}`, { method: "DELETE" });
+    if (!res.ok) throw new ApiError(res.status, "Couldn’t delete");
+  },
+  previewPronunciation: (text: string, language: string) =>
+    request<PronunciationPreview>("/pronunciations/preview", json("POST", { text, language })),
   generations: (voiceId?: string) =>
     request<Generation[]>(`/generations${voiceId ? `?voice_id=${voiceId}` : ""}`),
   generation: (id: string) => request<GenerationDetail>(`/generations/${id}`),

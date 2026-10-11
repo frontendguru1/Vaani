@@ -20,10 +20,11 @@ A personal voice-cloning studio that runs **entirely on your Mac**. Give it a fe
 - A required consent note per voice
 - Generate speech from long scripts, with natural pauses and live progress
 - Generation history with replay, regenerate and download (WAV/MP3)
+- A pronunciation dictionary for names and acronyms ("Vaani → Vaa-nee", "IIT → I I T"), with a live preview of what the voice will be given
 - Automatic transcription of every clip (Whisper, on the Apple GPU), with a Clips view to check and correct what was heard
 - A dark, animated interface that respects reduced-motion settings
 
-**Later:** speaking-style variants, a pronunciation dictionary, pause markers, multi-voice dialogue, batch generation, subtitle export, and side-by-side engine comparison.
+**Later:** speaking-style variants, pause markers, multi-voice dialogue, batch generation, subtitle export, and side-by-side engine comparison.
 
 ## Requirements
 
@@ -143,6 +144,8 @@ Everything is under `/api/v1`. Interactive docs are at http://127.0.0.1:8000/doc
 | `GET /generations/{id}/audio?format=wav\|mp3&download=true` | The result |
 | `POST /generations/{id}/regenerate`, `DELETE /generations/{id}` | |
 | `GET /jobs/{id}`, `GET /jobs/{id}/events` | Job status, and live progress as Server-Sent Events |
+| `GET/POST /pronunciations`, `PATCH/DELETE /pronunciations/{id}`, `POST /pronunciations/preview` | Pronunciation dictionary |
+| `POST /voices/{id}/transcribe`, `PUT /voices/{id}/samples/{sid}/transcript` | Transcribe a voice's clips, correct a transcript |
 | `GET /engines`, `GET /health` | Installed engines, and system status |
 
 ## Voice models and licenses
@@ -181,5 +184,5 @@ Vaani only answers requests addressed to `localhost`/`127.0.0.1`, and refuses up
 1. 🎧 Quality spike: the benchmark is built; the listening test on a real voice is still to do
 2. ✅ Backend core: voices, cleanup, quality checks, generation, history
 3. ✅ Frontend: voice library, recording, generation studio, history
-4. 🚧 Polish and extras: auto-transcription done
+4. 🚧 Polish and extras: auto-transcription and pronunciation dictionary done
 5. Notes on fine-tuning (documentation only)

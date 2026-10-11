@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "motion/react";
-import { AudioLines, History, Library } from "lucide-react";
+import { AudioLines, History, Library, SpellCheck } from "lucide-react";
 import type { ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 import { getHealth } from "../features/health/api";
@@ -12,6 +12,7 @@ const nav = [
   { to: "/voices", label: "Voices", icon: Library },
   { to: "/generate", label: "Generate", icon: AudioLines },
   { to: "/history", label: "History", icon: History },
+  { to: "/pronunciation", label: "Pronunciation", icon: SpellCheck },
 ];
 
 function NavItem({ to, label, icon: Icon, compact }: (typeof nav)[number] & { compact?: boolean }) {

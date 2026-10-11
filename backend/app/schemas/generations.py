@@ -24,6 +24,7 @@ class ChunkOut(BaseModel):
 
     idx: int
     text: str
+    spoken_text: str | None = None
     char_start: int
     char_end: int
     pause_after_ms: int

@@ -16,6 +16,8 @@ import { useJobEvents } from "../../lib/useJobEvents";
 import { voiceColors } from "../../lib/voiceColor";
 import { spring, variants } from "../../motion/tokens";
 import { ScriptEditor } from "./ScriptEditor";
+import { AppliedChips } from "../pronunciation/PronunciationPage";
+import { useDebounced } from "../../lib/useDebounced";
 
 const DRAFT_KEY = "vaani.script-draft";
 const readDraft = () => {
@@ -119,6 +121,13 @@ export function GeneratePage() {
   const working = Boolean(job) && !state.done;
   const ev = state.latest;
 
+  const debouncedScript = useDebounced(script, 600);
+  const pron = useQuery({
+    queryKey: ["pron-preview", debouncedScript, language],
+    queryFn: () => api.previewPronunciation(debouncedScript, language),
+    enabled: debouncedScript.trim().length > 0,
+    placeholderData: (prev) => prev,
+  });
   const engineInfo = engines.data?.find((e) => e.name === engine);
   // If the chosen engine can't speak the chosen language, switch to one that can.
   useEffect(() => {
@@ -190,6 +199,12 @@ export function GeneratePage() {
             <span className="font-mono">{chars.toLocaleString()} / 20,000</span>
             <span>Blank lines make longer pauses between paragraphs.</span>
           </div>
+          {pron.data && pron.data.applied.length > 0 && script.trim() && (
+            <div className="flex flex-wrap items-center gap-2 px-2 pt-3">
+              <Link to="/pronunciation" className="text-xs text-faint hover:text-ink">Pronunciation fixes:</Link>
+              <AppliedChips applied={pron.data.applied} />
+            </div>
+          )}
         </section>
 
         {/* Controls + orb */}
