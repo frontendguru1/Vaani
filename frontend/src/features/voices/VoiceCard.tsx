@@ -33,6 +33,7 @@ export function VoiceCard({ voice }: { voice: Voice }) {
     onSuccess: (r) => {
       qc.setQueryData<Voice[]>(["voices"], (vs) => vs?.filter((v) => v.id !== voice.id));
       void qc.invalidateQueries({ queryKey: ["generations"] });
+      void qc.invalidateQueries({ queryKey: ["builtin-missing"] });
       toast({
         tone: "success",
         title: `Deleted ${voice.name}`,
@@ -87,11 +88,21 @@ export function VoiceCard({ voice }: { voice: Voice }) {
             <h3 className="truncate text-base font-semibold">{voice.name}</h3>
           )}
           <p className="mt-0.5 text-xs text-muted">
-            <span lang={voice.language === "hi" ? "hi" : undefined}>{LANGUAGE_NAMES[voice.language] ?? voice.language}</span>
-            {ready && <>, {Math.round(voice.speech_seconds)}s of speech</>}
+            {voice.source === "builtin" ? (
+              <>Built-in {voice.gender ?? ""} voice</>
+            ) : (
+              <>
+                <span lang={voice.language === "hi" ? "hi" : undefined}>{LANGUAGE_NAMES[voice.language] ?? voice.language}</span>
+                {ready && <>, {Math.round(voice.speech_seconds)}s of speech</>}
+              </>
+            )}
           </p>
         </div>
-        {ready && voice.quality_rating && <RatingPill rating={voice.quality_rating} />}
+        {voice.source === "builtin" ? (
+          <span className="rounded-full border border-line px-2 py-0.5 text-[11px] text-muted">Built-in</span>
+        ) : (
+          ready && voice.quality_rating && <RatingPill rating={voice.quality_rating} />
+        )}
       </div>
 
       {voice.description && <p className="relative mt-3 line-clamp-2 text-sm text-muted">{voice.description}</p>}
@@ -129,7 +140,7 @@ export function VoiceCard({ voice }: { voice: Voice }) {
               <Button size="sm" variant="quiet" disabled={!ready} onClick={() => setClipsOpen(true)} aria-label={`Clips and transcripts for ${voice.name}`}>
                 <FileAudio size={14} /> Clips
               </Button>
-              <span className="ml-auto text-xs text-faint">{relativeDate(voice.created_at)}</span>
+              <span className="ml-auto whitespace-nowrap text-xs text-faint">{relativeDate(voice.created_at)}</span>
               <Button size="sm" variant="quiet" aria-label={`Rename ${voice.name}`} onClick={() => { setDraft(voice.name); setEditing(true); }}>
                 <Pencil size={14} />
               </Button>

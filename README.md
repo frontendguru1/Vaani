@@ -15,6 +15,7 @@ A personal voice-cloning studio that runs **entirely on your own Mac**. Give it 
 ## Features
 
 **Core app (working)**
+- 12 built-in voices (6 female, 6 male), ready to use straight away. They're studio speakers that ship with the XTTS-v2 model (English accent, non-commercial)
 - Create a Voice from uploaded clips (wav/mp3/m4a/ogg) or a microphone recording
 - Automatic cleanup: mono conversion, silence trimming, loudness normalising, optional denoise
 - A quality check with a Good / Okay / Poor rating and the reasons for it
@@ -93,7 +94,7 @@ If you plan to commit changes, turn on the repo's safety check once per clone. I
 git config core.hooksPath .githooks
 ```
 
-**First run:** creating your first voice downloads the XTTS-v2 voice model (2.1 GB) and the Whisper transcription model (1.6 GB), so it takes a few minutes. After that, voices are created in seconds and models stay loaded while the app runs.
+**First run:** the backend downloads the XTTS-v2 voice model (2.1 GB) and sets up the 12 built-in voices in the background, about a minute after the download. Creating your first own voice also downloads the Whisper transcription model (1.6 GB). After that, voices are created in seconds and models stay loaded while the app runs.
 
 To stop Vaani, press `Ctrl+C` in both terminals. Everything you made stays in `data/`.
 
@@ -160,6 +161,7 @@ All settings go in `.env` at the repo root. `.env.example` lists every option wi
 | `VAANI_F5MLX_QUANT` | empty (full) | `8` or `4` for smaller, slightly lower-quality F5 weights |
 | `VAANI_TRANSCRIBE_MODEL` | `mlx-community/whisper-large-v3-turbo` | Whisper model; `mlx-community/whisper-small-mlx` is 0.48 GB but weaker at Hindi |
 | `VAANI_TRANSCRIBE_ON_CREATE` | `true` | Transcribe clips automatically when a voice is created |
+| `VAANI_SEED_BUILTIN_VOICES` | `true` | Add the 12 built-in voices on first start |
 | `VAANI_PAUSE_SENTENCE_MS` / `_PARAGRAPH_MS` / `_TURN_MS` | 350 / 800 / 500 | Pauses between sentences, paragraphs, and speakers in a dialogue |
 | `VAANI_MAX_UPLOAD_MB` | 1024 | Largest upload per request (each file is also capped at 200 MB) |
 | `VAANI_HOST` / `VAANI_PORT` | 127.0.0.1 / 8000 | Where the backend listens. Keep it on this machine. |
@@ -190,6 +192,7 @@ Everything is under `/api/v1`. Interactive docs are at http://127.0.0.1:8000/doc
 | `GET /jobs/{id}`, `GET /jobs/{id}/events` | Job status, and live progress as Server-Sent Events |
 | `GET/POST /pronunciations`, `PATCH/DELETE /pronunciations/{id}`, `POST /pronunciations/preview` | Pronunciation dictionary |
 | `POST /voices/{id}/transcribe`, `PUT /voices/{id}/samples/{sid}/transcript` | Transcribe a voice's clips, correct a transcript |
+| `GET /voices/builtin/missing`, `POST /voices/builtin/restore` | Built-in voices that were deleted, and bringing them back |
 | `GET /engines`, `GET /health` | Installed engines, and system status |
 
 ## Voice models and licenses

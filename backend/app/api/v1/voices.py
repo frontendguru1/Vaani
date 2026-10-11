@@ -19,7 +19,7 @@ from app.schemas.voices import (
     VoiceOut,
     VoiceUpdate,
 )
-from app.services import audio, storage, voices
+from app.services import audio, builtin_voices, storage, voices
 from app.services.errors import Invalid, NotFound
 from app.services.quality import analyze
 
@@ -104,6 +104,18 @@ def quality_check(file: UploadFile = File(...)):
     return QualityCheck(
         filename=file.filename or "", duration=report.duration, report=report.to_dict()
     )
+
+
+@router.post("/builtin/restore", response_model=JobStarted | None)
+def restore_builtin(session: Session = Depends(get_session)):
+    """Re-add any built-in voices that were deleted (background job). null = nothing missing."""
+    job = builtin_voices.start_seeding(session)
+    return JobStarted(job_id=job.id) if job else None
+
+
+@router.get("/builtin/missing", response_model=list[str])
+def builtin_missing(session: Session = Depends(get_session)):
+    return [e["key"] for e in builtin_voices.missing(session)] if builtin_voices.can_seed() else []
 
 
 @router.get("/{voice_id}", response_model=VoiceDetail)

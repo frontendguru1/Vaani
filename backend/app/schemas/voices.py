@@ -30,6 +30,8 @@ class VoiceOut(BaseModel):
     consent_note: str
     status: str
     error: str | None
+    source: str = "user"
+    gender: str | None = None
     quality_rating: str | None
     quality_report: dict[str, Any] | None
     speech_seconds: float

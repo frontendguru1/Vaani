@@ -144,6 +144,35 @@ class XTTSEngine(TTSEngine):
             self._latents.clear()
             self.device = None
 
+    def builtin_speakers(self) -> list[str]:
+        path = model_dir() / "speakers_xtts.pth"
+        if not path.is_file():
+            return []
+        import torch
+
+        return list(torch.load(path, map_location="cpu", weights_only=True))
+
+    def create_builtin_voice(self, key: str, cache_dir: Path) -> VoiceProfile:
+        """Copy a studio speaker's latents (from speakers_xtts.pth, part of the model download)
+        into the same cache format create_voice() writes. No model load needed."""
+        import torch
+
+        path = model_dir() / "speakers_xtts.pth"
+        if not path.is_file():
+            self.download()
+        speakers = torch.load(path, map_location="cpu", weights_only=True)
+        if key not in speakers:
+            raise EngineError(f"XTTS has no built-in speaker called {key!r}")
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        torch.save(
+            {
+                "gpt_cond_latent": speakers[key]["gpt_cond_latent"].cpu(),
+                "speaker_embedding": speakers[key]["speaker_embedding"].cpu(),
+            },
+            cache_dir / LATENTS_FILE,
+        )
+        return VoiceProfile(self.name, self.version, cache_dir, {"latents": LATENTS_FILE})
+
     def create_voice(
         self,
         reference_files: list[Path],

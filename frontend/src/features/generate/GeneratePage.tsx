@@ -292,12 +292,14 @@ export function GeneratePage() {
             <div>
               <h2 className="mb-2 text-sm font-medium">Voice</h2>
               <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Voice">
-                {ready.map((v) => {
+                {[...ready].sort((a, b) => Number(a.source === "builtin") - Number(b.source === "builtin")).map((v, i, arr) => {
+                  const firstBuiltin = v.source === "builtin" && (i === 0 || arr[i - 1].source !== "builtin");
                   const c = voiceColors(v.id);
                   const on = v.id === voiceId;
                   return (
+                    <span key={v.id} className="contents">
+                    {firstBuiltin && <span className="mt-1 w-full text-xs text-faint">Built-in</span>}
                     <motion.button
-                      key={v.id}
                       type="button"
                       role="radio"
                       aria-checked={on}
@@ -310,6 +312,7 @@ export function GeneratePage() {
                       <span className="size-6 rounded-full" style={{ background: c.gradient }} />
                       {v.name}
                     </motion.button>
+                    </span>
                   );
                 })}
               </div>

@@ -10,7 +10,10 @@ _TMP = Path(os.environ.setdefault("VAANI_TEST_DATA", "/tmp/vaani-test-data"))
 os.environ["VAANI_DATA_DIR"] = str(_TMP)
 os.environ["DATABASE_URL"] = f"sqlite:///{_TMP / 'test.db'}"
 os.environ["VAANI_DEFAULT_ENGINE"] = "fake"
-os.environ["VAANI_TRANSCRIBE_ON_CREATE"] = "false"  # tests use a fake transcriber explicitly
+os.environ["VAANI_TRANSCRIBE_ON_CREATE"] = "false"
+os.environ["VAANI_SEED_BUILTIN_VOICES"] = (
+    "false"  # tests seed explicitly with a fake engine  # tests use a fake transcriber explicitly
+)
 # Starlette's TestClient sends Host: testserver.
 os.environ["VAANI_ALLOWED_HOSTS"] = '["localhost", "127.0.0.1", "testserver"]'
 

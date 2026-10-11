@@ -302,7 +302,7 @@ def _transcript_reference(voice: Voice, max_seconds: float) -> TranscriptRef:
         if not s.processed_path:
             continue
         if (
-            s.transcript_source == "user"
+            s.transcript_source in ("user", "builtin")  # typed/corrected, or a known script
             and s.transcript
             and s.duration_seconds <= max_seconds + 0.5
         ):
@@ -359,8 +359,7 @@ def ensure_profile(
         profile = VoiceProfile(
             engine_name, row.engine_version, storage.resolve(row.cache_dir), dict(row.data)
         )
-        files = [k for k, v in profile.data.items() if isinstance(v, str) and k != "ref_text"]
-        if all(profile.path(k).exists() for k in files):
+        if all(profile.path(k).exists() for k in profile.file_keys()):
             return profile, False
 
     if not engine.is_loaded and ctx:
@@ -407,7 +406,13 @@ def transcribe_samples(
 ) -> int:
     """Fill in Whisper phrases (and the transcript, unless the user typed one) per clip."""
     lo, hi = progress_range
-    todo = [s for s in voice.samples if s.processed_path and (force or not s.transcript_segments)]
+    todo = [
+        s
+        for s in voice.samples
+        if s.processed_path
+        and s.kind != "builtin"  # built-in samples have an exact script
+        and (force or not s.transcript_segments)
+    ]
     for i, smp in enumerate(todo):
         if ctx:
             ctx.progress(
@@ -417,7 +422,7 @@ def transcribe_samples(
             )
         phrases = transcription.transcribe_file(storage.resolve(smp.processed_path), voice.language)
         smp.transcript_segments = [p.to_dict() for p in phrases]
-        if smp.transcript_source != "user":
+        if smp.transcript_source not in ("user", "builtin"):
             smp.transcript = " ".join(p.text for p in phrases) or None
             smp.transcript_source = "whisper" if phrases else None
         session.commit()

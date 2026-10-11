@@ -26,6 +26,17 @@ class VoiceProfile:
     def path(self, key: str) -> Path:
         return self.cache_dir / self.data[key]
 
+    FILE_SUFFIXES = (".pt", ".wav", ".npy", ".npz", ".safetensors", ".json", ".bin")
+
+    def file_keys(self) -> list[str]:
+        """Keys whose values are cache files (as opposed to text like a transcript or a
+        built-in speaker's name)."""
+        return [
+            k
+            for k, v in self.data.items()
+            if isinstance(v, str) and v.lower().endswith(self.FILE_SUFFIXES)
+        ]
+
 
 @dataclass
 class SynthesisResult:
@@ -66,6 +77,13 @@ class TTSEngine(ABC):
     def availability(self) -> Availability:
         """Cheap check (no model load): is this engine installed and usable?"""
         return Availability(True)
+
+    def builtin_speakers(self) -> list[str]:
+        """Studio speakers that ship with the engine (none by default)."""
+        return []
+
+    def create_builtin_voice(self, key: str, cache_dir: Path) -> VoiceProfile:
+        raise EngineError(f"{self.label} has no built-in speakers")
 
     @property
     @abstractmethod

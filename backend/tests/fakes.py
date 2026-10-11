@@ -49,6 +49,16 @@ class FakeEngine(TTSEngine):
             self.name, self.version, cache_dir, {"emb": "emb.npy", "refs": len(reference_files)}
         )
 
+    def builtin_speakers(self) -> list[str]:
+        return ["Fake Female", "Fake Male"]
+
+    def create_builtin_voice(self, key, cache_dir: Path) -> VoiceProfile:
+        if key not in self.builtin_speakers():
+            raise EngineError(f"no speaker {key}")
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        np.save(cache_dir / "emb.npy", np.zeros(4))
+        return VoiceProfile(self.name, self.version, cache_dir, {"emb": "emb.npy", "builtin": key})
+
     def synthesize(self, text, profile, language, **options) -> SynthesisResult:
         if self.fail_on and self.fail_on in text:
             raise EngineError(f"boom on {text!r}")

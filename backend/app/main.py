@@ -28,9 +28,24 @@ log = logging.getLogger("vaani")
 async def lifespan(_app: FastAPI):
     settings = get_settings()
     settings.ensure_dirs()
+    # Apply pending migrations on every start, including dev hot-reloads. Otherwise new code
+    # can run against an old schema (this happened once: deletes and playback failed with
+    # "no such column" until `vaani migrate` was run by hand).
+    from app.cli import upgrade_to_head
+
+    upgrade_to_head()
     log.info("Vaani %s | data=%s | db=%s", __version__, settings.data_dir, settings.db_url)
     runner = get_runner()
     runner.start()
+    if settings.seed_builtin_voices:
+        from app.db import SessionLocal
+        from app.services import builtin_voices
+
+        try:
+            with SessionLocal() as session:
+                builtin_voices.seed_on_startup(session)
+        except Exception:  # noqa: BLE001 - never block startup on this
+            log.exception("could not queue built-in voices")
     yield
     runner.stop()
     for eng in registry.all_engines():

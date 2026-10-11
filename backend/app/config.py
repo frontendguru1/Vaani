@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     # Auto-transcription (mlx-whisper). Weights live in data/models/whisper/<name>.
     transcribe_model: str = "mlx-community/whisper-large-v3-turbo"
     transcribe_on_create: bool = True
+    # Add the built-in studio voices on first start (needs XTTS-v2).
+    seed_builtin_voices: bool = True
     max_upload_mb: int = 1024  # whole request; each file is also capped at 200 MB
 
     @field_validator("data_dir")

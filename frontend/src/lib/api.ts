@@ -94,12 +94,12 @@ export interface VoiceSummaryReport {
 
 export interface Sample {
   id: string;
-  kind: "upload" | "recording";
+  kind: "upload" | "recording" | "builtin";
   original_filename: string;
   size_bytes: number;
   duration_seconds: number;
   transcript: string | null;
-  transcript_source: "user" | "whisper" | null;
+  transcript_source: "user" | "whisper" | "builtin" | null;
   transcript_segments: { start: number; end: number; text: string }[] | null;
   quality: QualityReport | null;
   has_audio: boolean;
@@ -113,6 +113,8 @@ export interface Voice {
   consent_note: string;
   status: "processing" | "ready" | "failed";
   error: string | null;
+  source: "user" | "builtin";
+  gender: "female" | "male" | null;
   quality_rating: Rating | null;
   quality_report: VoiceSummaryReport | null;
   speech_seconds: number;
@@ -232,6 +234,8 @@ export const api = {
       signal,
     );
   },
+  builtinMissing: () => request<string[]>("/voices/builtin/missing"),
+  restoreBuiltin: () => request<{ job_id: string } | null>("/voices/builtin/restore", { method: "POST" }),
   transcribe: (voiceId: string, force = false) =>
     request<{ job_id: string }>(`/voices/${voiceId}/transcribe${force ? "?force=true" : ""}`, { method: "POST" }),
   correctTranscript: (voiceId: string, sampleId: string, texts: string[]) =>

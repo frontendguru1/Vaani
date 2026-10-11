@@ -53,6 +53,11 @@ export function ClipsDialog({ voice, open, onOpenChange }: { voice: Voice; open:
   return (
     <Modal open={open} onOpenChange={onOpenChange} title={`${voice.name}’s clips`} wide
       description="What Vaani heard in each clip. Fix any mistakes: F5 and IndicF5 need the words to be exact.">
+      {voice.source === "builtin" ? (
+        <p className="mb-5 text-sm text-muted">
+          This built-in voice comes ready-made with the XTTS-v2 model. Its sample clip below was spoken from a known script, so its transcript is exact.
+        </p>
+      ) : (
       <div className="mb-5 flex flex-wrap items-center gap-3">
         <Button variant={anyTranscribed ? "ghost" : "primary"} onClick={() => start(anyTranscribed)} disabled={working}>
           <Sparkles size={15} /> {working ? "Transcribing…" : anyTranscribed ? "Transcribe again" : "Transcribe clips"}
@@ -70,6 +75,7 @@ export function ClipsDialog({ voice, open, onOpenChange }: { voice: Voice; open:
         </AnimatePresence>
         {anyTranscribed && !working && <span className="text-xs text-faint">Transcribing again keeps the clips whose words you’ve corrected.</span>}
       </div>
+      )}
 
       {detail.isLoading && <div className="space-y-3">{[0, 1].map((i) => <div key={i} className="h-28 animate-pulse rounded-2xl bg-white/[0.04]" />)}</div>}
       <motion.ul variants={variants.list} initial="hidden" animate="show" className="space-y-3">
@@ -108,9 +114,11 @@ function ClipRow({ voice, sample, color }: { voice: Voice; sample: Sample; color
         <span className="font-mono text-xs text-faint">{formatTime(sample.duration_seconds)}</span>
         {sample.quality && <RatingPill rating={sample.quality.rating} />}
         {sample.transcript_source && (
-          <span className="text-xs text-faint">{sample.transcript_source === "user" ? "Checked by you" : "Transcribed automatically"}</span>
+          <span className="text-xs text-faint">
+            {sample.transcript_source === "user" ? "Checked by you" : sample.transcript_source === "builtin" ? "Exact script" : "Transcribed automatically"}
+          </span>
         )}
-        {segs.length > 0 && !editing && (
+        {segs.length > 0 && !editing && sample.transcript_source !== "builtin" && (
           <Button size="sm" variant="quiet" className="ml-auto" onClick={() => { setDrafts(segs.map((x) => x.text)); setEditing(true); }}>
             <Pencil size={13} /> Correct
           </Button>
