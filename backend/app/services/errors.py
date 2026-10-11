@@ -4,10 +4,11 @@
 class ServiceError(Exception):
     status_code = 400
 
-    def __init__(self, message: str, *, code: str = "error") -> None:
+    def __init__(self, message: str, *, code: str = "error", details: list | None = None) -> None:
         super().__init__(message)
         self.message = message
         self.code = code
+        self.details = details  # optional structured info, e.g. which batch items are invalid
 
 
 class NotFound(ServiceError):

@@ -231,6 +231,10 @@ def delete_voice(session: Session, voice_id: str) -> DeleteReport:
         g = session.get(Generation, gid)
         if g is not None and g.voice_id != voice_id:
             session.delete(g)
+    from app.models import Batch
+
+    for b in session.scalars(select(Batch).where(Batch.voice_id == voice_id)):
+        session.delete(b)  # explicit, rather than relying on SQLite's FK cascade setting
     session.delete(voice)  # cascades samples, profiles, generations, chunks
     # Jobs reference the voice loosely; remove them too so nothing names it.
     for job in session.scalars(select(Job).where(Job.voice_id == voice_id)):

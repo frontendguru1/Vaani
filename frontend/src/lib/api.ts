@@ -5,6 +5,7 @@ export class ApiError extends Error {
     public status: number,
     message: string,
     public code?: string,
+    public details?: unknown[],
   ) {
     super(message);
   }
@@ -14,7 +15,7 @@ async function parseError(res: Response): Promise<ApiError> {
   try {
     const body = await res.json();
     const detail = typeof body.detail === "string" ? body.detail : res.statusText;
-    return new ApiError(res.status, detail, body.code);
+    return new ApiError(res.status, detail, body.code, body.details);
   } catch {
     return new ApiError(res.status, `${res.status} ${res.statusText}`);
   }
@@ -176,6 +177,9 @@ export interface Generation {
   compute_seconds: number | null;
   chunk_count: number;
   similarity: number | null;
+  batch_id: string | null;
+  batch_index: number | null;
+  title: string | null;
   created_at: string;
 }
 
@@ -196,6 +200,28 @@ export interface JobEvent {
   result: Record<string, unknown> | null;
   error: string | null;
   data: Record<string, unknown>;
+}
+
+export interface Batch {
+  id: string;
+  title: string;
+  voice_id: string;
+  voice_name: string | null;
+  language: string;
+  engine: string;
+  created_at: string;
+  progress: number;
+  finished: boolean;
+  counts: Record<string, number>;
+  items: Generation[];
+  done_chunks: Record<string, number>;
+}
+
+export interface BatchItemError {
+  index: number;
+  title: string;
+  detail: string;
+  code: string;
 }
 
 export interface PronunciationEntry {
@@ -245,6 +271,18 @@ export const api = {
     request<{ job_id: string }>(`/voices/${voiceId}/transcribe${force ? "?force=true" : ""}`, { method: "POST" }),
   correctTranscript: (voiceId: string, sampleId: string, texts: string[]) =>
     request<VoiceDetail>(`/voices/${voiceId}/samples/${sampleId}/transcript`, json("PUT", { texts })),
+  batches: () => request<Batch[]>("/batches"),
+  batch: (id: string) => request<Batch>(`/batches/${id}`),
+  createBatch: (body: {
+    voice_id: string;
+    language: string;
+    title: string;
+    engine?: string;
+    settings?: Record<string, number>;
+    items: { title: string; script: string }[];
+  }) => request<Batch>("/batches", json("POST", body)),
+  cancelBatch: (id: string) => request<{ cancelled: number }>(`/batches/${id}/cancel`, { method: "POST" }),
+  deleteBatch: (id: string) => request<{ files_removed: number }>(`/batches/${id}`, { method: "DELETE" }),
   pronunciations: () => request<PronunciationEntry[]>("/pronunciations"),
   addPronunciation: (body: Omit<PronunciationEntry, "id">) =>
     request<PronunciationEntry>("/pronunciations", json("POST", body)),
@@ -276,6 +314,8 @@ export const api = {
 export const audioUrl = {
   preview: (voiceId: string) => `/api/v1/voices/${voiceId}/preview`,
   sample: (voiceId: string, sampleId: string) => `/api/v1/voices/${voiceId}/samples/${sampleId}/audio`,
+  batchZip: (id: string, format: "wav" | "mp3", subtitles: "srt" | "vtt" | "none") =>
+    `/api/v1/batches/${id}/download?format=${format}&subtitles=${subtitles}`,
   subtitles: (id: string, format: "srt" | "vtt" = "srt") =>
     `/api/v1/generations/${id}/subtitles?format=${format}&download=true`,
   generation: (id: string, format: "wav" | "mp3" = "wav", download = false) =>

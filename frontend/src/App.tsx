@@ -5,6 +5,7 @@ import { AppShell } from "./components/AppShell";
 import { ToastProvider } from "./components/Toasts";
 import { GeneratePage } from "./features/generate/GeneratePage";
 import { HistoryPage } from "./features/history/HistoryPage";
+import { BatchPage } from "./features/batch/BatchPage";
 import { PronunciationPage } from "./features/pronunciation/PronunciationPage";
 import { VoicesPage } from "./features/voices/VoicesPage";
 import { transition } from "./motion/tokens";
@@ -28,6 +29,7 @@ function AnimatedRoutes() {
           <Route path="/" element={<Navigate to="/voices" replace />} />
           <Route path="/voices" element={<VoicesPage />} />
           <Route path="/generate" element={<GeneratePage />} />
+          <Route path="/batch" element={<BatchPage />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/pronunciation" element={<PronunciationPage />} />
           <Route path="*" element={<Navigate to="/voices" replace />} />

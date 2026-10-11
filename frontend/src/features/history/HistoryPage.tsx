@@ -79,6 +79,7 @@ function HistoryItem({ gen, onChanged }: { gen: Generation; onChanged: () => voi
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <p className="text-sm font-medium" style={{ color: colors.solid }}>
           {gen.speakers.length > 1 ? `Dialogue: ${gen.speakers.join(", ")}` : (gen.speakers[0] ?? gen.voice_name ?? "Deleted voice")}
+          {gen.title && <span className="font-normal text-muted">, {gen.batch_id ? "batch item " : ""}“{gen.title}”</span>}
         </p>
         <p className="text-xs text-faint">
           {relativeDate(gen.created_at)}

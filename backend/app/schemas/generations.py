@@ -54,6 +54,9 @@ class GenerationOut(BaseModel):
     compute_seconds: float | None
     chunk_count: int
     similarity: float | None = None
+    batch_id: str | None = None
+    batch_index: int | None = None
+    title: str | None = None
     created_at: datetime
 
 

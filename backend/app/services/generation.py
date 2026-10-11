@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -160,7 +160,28 @@ def _plan(
     return out, lead_ms
 
 
-def create_generation(
+@dataclass
+class Prepared:
+    """A validated, planned generation that hasn't been saved yet."""
+
+    voice_id: str
+    engine: str
+    language: str
+    script: str
+    settings: dict[str, Any]
+    planned: list[tuple[Chunk, str]]
+
+
+def resolve_engine(session: Session, voice: Voice, language: str, engine: str | None) -> str:
+    configured = get_settings().default_engine
+    if engine:
+        return engine
+    if configured != "auto":
+        return configured  # the user forced one engine for everything
+    return recommend_engine(session, voice, language)["engine"]
+
+
+def prepare_generation(
     session: Session,
     *,
     voice_id: str,
@@ -168,7 +189,9 @@ def create_generation(
     language: str,
     engine: str | None = None,
     settings: dict[str, Any] | None = None,
-) -> tuple[Generation, Job]:
+) -> Prepared:
+    """Every check and the sentence plan, without saving anything (batches validate all
+    their items this way before queuing any)."""
     voice = session.get(Voice, voice_id)
     if voice is None:
         raise NotFound("Voice not found", code="voice_not_found")
@@ -180,13 +203,7 @@ def create_generation(
             f"Script is too long (max {MAX_SCRIPT_CHARS:,} characters).", code="script_too_long"
         )
 
-    configured = get_settings().default_engine
-    if engine:
-        engine_name = engine
-    elif configured != "auto":
-        engine_name = configured  # the user forced one engine for everything
-    else:
-        engine_name = recommend_engine(session, voice, language)["engine"]
+    engine_name = resolve_engine(session, voice, language, engine)
     if engine_name not in registry.engine_names():
         raise Invalid(f"Unknown engine '{engine_name}'.", code="engine_unknown")
     eng = registry.get_engine(engine_name)
@@ -227,37 +244,81 @@ def create_generation(
         clean["lead_pause_ms"] = lead_ms  # silence before the first sentence
     if len(speaker_ids) > 1 or speaker_ids[0] != voice_id:
         clean["speakers"] = speaker_ids
+    return Prepared(voice_id, engine_name, language, script, clean, planned)
+
+
+def save_generation(
+    session: Session,
+    prep: Prepared,
+    *,
+    batch_id: str | None = None,
+    batch_index: int | None = None,
+    title: str | None = None,
+    commit: bool = True,
+) -> Generation:
     gen = Generation(
-        voice_id=voice_id,
-        engine=engine_name,
-        language=language,
-        script=script,
-        settings=clean,
+        voice_id=prep.voice_id,
+        engine=prep.engine,
+        language=prep.language,
+        script=prep.script,
+        settings=prep.settings,
         status="queued",
-        chunk_count=len(planned),
+        chunk_count=len(prep.planned),
+        batch_id=batch_id,
+        batch_index=batch_index,
+        title=title,
     )
     session.add(gen)
     session.flush()
     entries = pronunciation.list_entries(session)
-    for c, vid in planned:
-        spoken, applied = pronunciation.apply(c.text, language, entries)
+    for c, vid in prep.planned:
+        spoken, applied = pronunciation.apply(c.text, prep.language, entries)
         session.add(
             GenerationChunk(
                 generation_id=gen.id,
                 idx=c.index,
                 text=c.text,
-                voice_id=vid if vid != voice_id else None,
+                voice_id=vid if vid != prep.voice_id else None,
                 spoken_text=spoken if applied else None,
                 char_start=c.start,
                 char_end=c.end,
                 pause_after_ms=c.pause_after_ms,
             )
         )
-    session.commit()
-    job = get_runner().submit(
-        session, "generate", {"generation_id": gen.id}, voice_id=voice_id, generation_id=gen.id
+    if commit:
+        session.commit()
+    return gen
+
+
+def queue_generation(session: Session, gen: Generation) -> Job:
+    return get_runner().submit(
+        session,
+        "generate",
+        {"generation_id": gen.id},
+        voice_id=gen.voice_id,
+        generation_id=gen.id,
     )
-    return gen, job
+
+
+def create_generation(
+    session: Session,
+    *,
+    voice_id: str,
+    script: str,
+    language: str,
+    engine: str | None = None,
+    settings: dict[str, Any] | None = None,
+) -> tuple[Generation, Job]:
+    prep = prepare_generation(
+        session,
+        voice_id=voice_id,
+        script=script,
+        language=language,
+        engine=engine,
+        settings=settings,
+    )
+    gen = save_generation(session, prep)
+    return gen, queue_generation(session, gen)
 
 
 def get_generation(session: Session, generation_id: str) -> Generation:

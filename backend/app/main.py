@@ -69,7 +69,10 @@ app.include_router(api_router)
 
 @app.exception_handler(ServiceError)
 async def _service_error(_req: Request, exc: ServiceError):
-    return JSONResponse({"detail": exc.message, "code": exc.code}, status_code=exc.status_code)
+    body = {"detail": exc.message, "code": exc.code}
+    if exc.details:
+        body["details"] = exc.details
+    return JSONResponse(body, status_code=exc.status_code)
 
 
 @app.exception_handler(EngineError)

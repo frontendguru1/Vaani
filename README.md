@@ -48,6 +48,7 @@ Built-in studio voices, 6 female and 6 male, so you can try Vaani before recordi
 - Generate speech from long scripts, with natural pauses and live progress
 - Generation history with replay, regenerate and download (WAV/MP3)
 - Pause markers in scripts: `[pause 1s]`, `[pause 500ms]`, `[pause 2]` (seconds) or just `[pause]` (1 second), up to 10 seconds each. They show as chips in the editor and can be inserted with one click
+- Batch generation: many scripts with the same voice in one go (type them, paste them separated by `---`, or import `.txt` files), live progress, and one ZIP download with numbered audio files and subtitles
 - Subtitles: download SRT or WebVTT for any generation, timed to the audio, with speaker names in dialogues
 - Multi-voice dialogue: start lines with a voice name, `[Papa]: …` / `[Meera]: …`, and get one recording with everyone speaking. Speaker tags show in each voice's colour, and the orb and highlight follow whoever is speaking
 - A pronunciation dictionary for names and acronyms ("Vaani → Vaa-nee", "IIT → I I T"), with a live preview of what the voice will be given
@@ -56,7 +57,7 @@ Built-in studio voices, 6 female and 6 male, so you can try Vaani before recordi
 - Automatic transcription of every clip (Whisper, on the Apple GPU), with a Clips view to check and correct what was heard
 - A dark, animated interface that respects reduced-motion settings
 
-**Later:** speaking-style variants, batch generation, and side-by-side engine comparison.
+**Later:** speaking-style variants and side-by-side engine comparison.
 
 ## Prerequisites
 
@@ -215,6 +216,8 @@ Everything is under `/api/v1`. Interactive docs are at http://127.0.0.1:8000/doc
 | `GET /generations/{id}/audio?format=wav\|mp3&download=true` | The result |
 | `GET /generations/{id}/subtitles?format=srt\|vtt&download=true` | Subtitles timed to the audio |
 | `POST /generations/{id}/regenerate`, `DELETE /generations/{id}` | |
+| `POST /batches`, `GET /batches`, `GET /batches/{id}` | Batch generation and its progress |
+| `POST /batches/{id}/cancel`, `DELETE /batches/{id}`, `GET /batches/{id}/download?format=wav\|mp3&subtitles=srt\|vtt\|none` | Cancel, delete, and download a batch as a ZIP |
 | `GET /jobs/{id}`, `GET /jobs/{id}/events` | Job status, and live progress as Server-Sent Events |
 | `GET/POST /pronunciations`, `PATCH/DELETE /pronunciations/{id}`, `POST /pronunciations/preview` | Pronunciation dictionary |
 | `POST /voices/{id}/transcribe`, `PUT /voices/{id}/samples/{sid}/transcript` | Transcribe a voice's clips, correct a transcript |
@@ -258,5 +261,5 @@ Which engines Vaani ships with depends on a listening test in Phase 1. **Vaani i
 1. 🎧 Quality spike: the benchmark is built; the listening test on a real voice is still to do
 2. ✅ Backend core: voices, cleanup, quality checks, generation, history
 3. ✅ Frontend: voice library, recording, generation studio, history
-4. 🚧 Polish and extras: auto-transcription, pronunciation dictionary, pause markers, dialogue and subtitles done
+4. 🚧 Polish and extras: auto-transcription, pronunciation dictionary, pause markers, dialogue and subtitles and batches done
 5. Notes on fine-tuning (documentation only)
