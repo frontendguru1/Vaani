@@ -262,6 +262,29 @@ def audio_file(session: Session, generation_id: str, fmt: str = "wav") -> Path:
     raise Invalid("Format must be wav or mp3.", code="format")
 
 
+def subtitles(session: Session, generation_id: str, fmt: str = "srt") -> str:
+    """SRT or WebVTT text for a finished generation (dialogues get speaker names)."""
+    from app.services import subtitles as subs
+
+    gen = get_generation(session, generation_id)
+    if gen.status != "done" or gen.duration_seconds is None:
+        raise Invalid("Subtitles are available once the audio is ready.", code="not_ready")
+    names = None
+    speakers = (gen.settings or {}).get("speakers")
+    if speakers and (len(speakers) > 1 or speakers[0] != gen.voice_id):
+        names = dict(session.execute(select(Voice.id, Voice.name)).all())
+    try:
+        spans = subs.chunk_spans(gen.chunks, gen.duration_seconds, names, gen.voice_id)
+    except ValueError as exc:
+        raise Invalid(str(exc), code="no_timing") from exc
+    cues = subs.build_cues(spans)
+    if fmt == "srt":
+        return subs.to_srt(cues)
+    if fmt == "vtt":
+        return subs.to_vtt(cues)
+    raise Invalid("Format must be srt or vtt.", code="format")
+
+
 # ---------------------------------------------------------------------------
 # Background job
 # ---------------------------------------------------------------------------

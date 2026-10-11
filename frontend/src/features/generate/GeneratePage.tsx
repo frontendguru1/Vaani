@@ -412,6 +412,8 @@ export function GeneratePage() {
               downloads={[
                 { label: "WAV", href: audioUrl.generation(gen.id, "wav", true) },
                 { label: "MP3", href: audioUrl.generation(gen.id, "mp3", true) },
+                { label: "SRT", href: audioUrl.subtitles(gen.id, "srt"), title: "Subtitles (SRT)" },
+                { label: "VTT", href: audioUrl.subtitles(gen.id, "vtt"), title: "Subtitles (WebVTT)" },
               ]}
               onTime={(t) => {
                 const c = [...gen.chunks].reverse().find((ch) => (ch.offset_seconds ?? 0) <= t + 0.05);

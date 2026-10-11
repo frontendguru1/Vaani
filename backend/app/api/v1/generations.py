@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -76,6 +76,23 @@ def audio(
     media = "audio/mpeg" if format == "mp3" else "audio/wav"
     filename = f"vaani-{generation_id[-8:].lower()}.{format}" if download else None
     return FileResponse(path, media_type=media, filename=filename)
+
+
+@router.get("/{generation_id}/subtitles")
+def subtitles(
+    generation_id: str,
+    format: str = Query("srt", pattern="^(srt|vtt)$"),
+    download: bool = False,
+    session: Session = Depends(get_session),
+):
+    body = svc.subtitles(session, generation_id, format)
+    media = "application/x-subrip" if format == "srt" else "text/vtt"
+    headers = {}
+    if download:
+        headers["Content-Disposition"] = (
+            f'attachment; filename="vaani-{generation_id[-8:].lower()}.{format}"'
+        )
+    return Response(body, media_type=f"{media}; charset=utf-8", headers=headers)
 
 
 @router.post("/{generation_id}/regenerate", response_model=GenerationCreated, status_code=202)

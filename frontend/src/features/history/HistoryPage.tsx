@@ -91,7 +91,11 @@ function HistoryItem({ gen, onChanged }: { gen: Generation; onChanged: () => voi
       <div className="mt-4">
         {gen.status === "done" ? (
           <AudioPlayer src={audioUrl.generation(gen.id)} color={colors.solid} compact
-            downloads={[{ label: "WAV", href: audioUrl.generation(gen.id, "wav", true) }, { label: "MP3", href: audioUrl.generation(gen.id, "mp3", true) }]} />
+            downloads={[
+              { label: "WAV", href: audioUrl.generation(gen.id, "wav", true) },
+              { label: "MP3", href: audioUrl.generation(gen.id, "mp3", true) },
+              { label: "SRT", href: audioUrl.subtitles(gen.id, "srt"), title: "Subtitles (SRT)" },
+            ]} />
         ) : gen.status === "failed" ? (
           <p className="text-xs text-poor">Failed: {gen.error}</p>
         ) : (

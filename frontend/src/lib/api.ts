@@ -267,6 +267,8 @@ export const api = {
 export const audioUrl = {
   preview: (voiceId: string) => `/api/v1/voices/${voiceId}/preview`,
   sample: (voiceId: string, sampleId: string) => `/api/v1/voices/${voiceId}/samples/${sampleId}/audio`,
+  subtitles: (id: string, format: "srt" | "vtt" = "srt") =>
+    `/api/v1/generations/${id}/subtitles?format=${format}&download=true`,
   generation: (id: string, format: "wav" | "mp3" = "wav", download = false) =>
     `/api/v1/generations/${id}/audio?format=${format}${download ? "&download=true" : ""}`,
 };

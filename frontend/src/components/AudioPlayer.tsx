@@ -8,7 +8,7 @@ import { Waveform } from "./Waveform";
 interface Props {
   src: string;
   color?: string;
-  downloads?: { label: string; href: string }[];
+  downloads?: { label: string; href: string; title?: string }[];
   compact?: boolean;
   autoFocus?: boolean;
   onTime?: (seconds: number) => void;
@@ -90,11 +90,13 @@ export function AudioPlayer({ src, color, downloads = [], compact = false, autoF
       </div>
 
       {downloads.length > 0 && (
-        <div className="flex shrink-0 gap-1">
+        <div className="flex shrink-0 flex-wrap justify-end gap-1">
           {downloads.map((d) => (
             <a
               key={d.label}
               href={d.href}
+              title={d.title ?? `Download ${d.label}`}
+              aria-label={d.title ?? `Download ${d.label}`}
               download
               className="inline-flex h-8 items-center gap-1 rounded-full border border-line px-3 text-xs text-muted transition-colors hover:bg-white/[0.06] hover:text-ink"
             >
