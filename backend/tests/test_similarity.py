@@ -137,6 +137,10 @@ def test_recommendation_prefers_f5_for_english_with_a_transcribed_clip(db, monke
     assert recommend_engine(s, voices.get_voice(s, v.id), "en")["engine"] == "f5_mlx"
     hi = recommend_engine(s, v, "hi")
     assert hi["engine"] == "xtts" and hi["alternatives"][0]["engine"] == "indicf5"
+    assert "Needs a Hindi recording" in hi["alternatives"][0]["note"]  # English-made voice
+    v.language = "hi"
+    assert "10× slower" in recommend_engine(s, v, "hi")["alternatives"][0]["note"]
+    v.language = "en"
     v.source = "builtin"
     assert recommend_engine(s, v, "en")["engine"] == "xtts"
 

@@ -71,9 +71,16 @@ def recommend_engine(session: Session, voice: Voice, language: str) -> dict[str,
             {"engine": "f5_mlx", "note": "Sounds much closer once the clips are transcribed."}
         )
     if language == "hi" and ok("indicf5"):
-        alternatives.append(
-            {"engine": "indicf5", "note": "Most accurate Hindi, but about 10× slower."}
+        # IndicF5 only knows Indian languages: given an English reference clip (the only kind
+        # an English-recorded voice has) it added babble that wasn't in the script and
+        # garbled words (owner's voice, 2026-10-11). Say so instead of recommending it blindly.
+        note = (
+            "Most accurate Hindi, but about 10× slower."
+            if voice.language == "hi"
+            else "Needs a Hindi recording of this voice first; with English clips it adds "
+            "sounds that aren't in the script."
         )
+        alternatives.append({"engine": "indicf5", "note": note})
     return {
         "engine": "xtts",
         "reason": "Fast, and works for every voice.",
