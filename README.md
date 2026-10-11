@@ -27,6 +27,8 @@ A personal voice-cloning studio that runs **entirely on your own Mac**. Give it 
 - Subtitles: download SRT or WebVTT for any generation, timed to the audio, with speaker names in dialogues
 - Multi-voice dialogue: start lines with a voice name, `[Papa]: …` / `[Meera]: …`, and get one recording with everyone speaking. Speaker tags show in each voice's colour, and the orb and highlight follow whoever is speaking
 - A pronunciation dictionary for names and acronyms ("Vaani → Vaa-nee", "IIT → I I T"), with a live preview of what the voice will be given
+- A "sounds like" score for every generation (an independent speaker-recognition model compares the result with the original clips), plus an original-vs-generated comparison
+- Picks the engine that sounds most like the person: F5-TTS for English (measured 0.81 similarity to a real voice, against 0.63 for XTTS), XTTS for speed and Hindi
 - Automatic transcription of every clip (Whisper, on the Apple GPU), with a Clips view to check and correct what was heard
 - A dark, animated interface that respects reduced-motion settings
 
@@ -157,7 +159,7 @@ All settings go in `.env` at the repo root. `.env.example` lists every option wi
 | `DATABASE_URL` | SQLite in the data dir | Point this at Postgres later if wanted |
 | `VAANI_DEVICE` | `auto` | `auto` uses the Apple GPU (MPS) and falls back to CPU |
 | `VAANI_XTTS_DEVICE` | follows `VAANI_DEVICE` | Force XTTS onto `cpu` if GPU output ever sounds wrong |
-| `VAANI_DEFAULT_ENGINE` | `xtts` | Voice engine used when none is chosen |
+| `VAANI_DEFAULT_ENGINE` | `auto` | `auto` picks the engine that sounds closest for each voice and language; or name one (`xtts`, `f5_mlx`, `indicf5`) to always use it |
 | `VAANI_F5MLX_QUANT` | empty (full) | `8` or `4` for smaller, slightly lower-quality F5 weights |
 | `VAANI_TRANSCRIBE_MODEL` | `mlx-community/whisper-large-v3-turbo` | Whisper model; `mlx-community/whisper-small-mlx` is 0.48 GB but weaker at Hindi |
 | `VAANI_TRANSCRIBE_ON_CREATE` | `true` | Transcribe clips automatically when a voice is created |
@@ -202,6 +204,7 @@ Everything is under `/api/v1`. Interactive docs are at http://127.0.0.1:8000/doc
 | [XTTS-v2](https://huggingface.co/coqui/XTTS-v2) via [coqui-tts](https://github.com/idiap/coqui-ai-TTS) | English + Hindi, baseline | 2.1 GB | Code MPL-2.0; weights **Coqui Public Model License (non-commercial)** |
 | [IndicF5](https://huggingface.co/ai4bharat/IndicF5) (AI4Bharat) | Hindi quality | 1.4 GB | MIT; access requires accepting the terms on Hugging Face |
 | [F5-TTS MLX](https://github.com/lucasnewman/f5-tts-mlx) | Fast English on Apple Silicon | 0.2–1.4 GB | Code MIT; weights license not stated (upstream F5-TTS weights are CC-BY-NC) |
+| [SpeechBrain ECAPA](https://huggingface.co/speechbrain/spkrec-ecapa-voxceleb) | Similarity score and speaker check (not a voice engine) | 89 MB | Apache-2.0 |
 | [Whisper large-v3-turbo](https://huggingface.co/mlx-community/whisper-large-v3-turbo) via mlx-whisper | Transcribing clips (not a voice engine) | 1.6 GB | MIT |
 
 Which engines Vaani ships with depends on a listening test in Phase 1. **Vaani is for personal and family use only.** Do not use it commercially.

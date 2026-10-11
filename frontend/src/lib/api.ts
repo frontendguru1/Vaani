@@ -175,6 +175,7 @@ export interface Generation {
   duration_seconds: number | null;
   compute_seconds: number | null;
   chunk_count: number;
+  similarity: number | null;
   created_at: string;
 }
 
@@ -234,6 +235,10 @@ export const api = {
       signal,
     );
   },
+  recommend: (voiceId: string, language: string) =>
+    request<{ engine: string; reason: string; alternatives: { engine: string; note: string }[] }>(
+      `/voices/${voiceId}/recommend?language=${language}`,
+    ),
   builtinMissing: () => request<string[]>("/voices/builtin/missing"),
   restoreBuiltin: () => request<{ job_id: string } | null>("/voices/builtin/restore", { method: "POST" }),
   transcribe: (voiceId: string, force = false) =>

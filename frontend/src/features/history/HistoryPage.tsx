@@ -11,6 +11,7 @@ import { useToast } from "../../components/Toasts";
 import { api, ApiError, audioUrl, type Generation } from "../../lib/api";
 import { formatTime, hasDevanagari, relativeDate } from "../../lib/format";
 import { voiceColors } from "../../lib/voiceColor";
+import { similarityColor, similarityLabel } from "../../lib/similarity";
 import { transition, variants } from "../../motion/tokens";
 
 export function HistoryPage() {
@@ -82,6 +83,12 @@ function HistoryItem({ gen, onChanged }: { gen: Generation; onChanged: () => voi
         <p className="text-xs text-faint">
           {relativeDate(gen.created_at)}
           {gen.status === "done" && gen.compute_seconds != null && <>, made in {gen.compute_seconds.toFixed(1)}s</>}
+          {gen.similarity != null && (
+            <span className="ml-2 inline-flex items-center gap-1" title={`Sounds ${similarityLabel(gen.similarity)} to the voice`}>
+              <span className="size-1.5 rounded-full" style={{ background: similarityColor(gen.similarity) }} />
+              <span className="font-mono">{Math.round(Math.max(0, gen.similarity) * 100)}%</span> match
+            </span>
+          )}
         </p>
       </div>
       <p lang={hasDevanagari(gen.script) ? "hi" : undefined} className="mt-2 line-clamp-2 max-w-[75ch] text-[15px] leading-relaxed text-ink/90">

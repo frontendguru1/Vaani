@@ -42,6 +42,45 @@ def _clean_settings(settings: dict[str, Any] | None) -> dict[str, Any]:
     return out
 
 
+def recommend_engine(session: Session, voice: Voice, language: str) -> dict[str, Any]:
+    """Which engine sounds most like this voice, from measured results (2026-10-11):
+    English — F5-TTS similarity 0.84 vs XTTS 0.56 (no words lost either way), so F5 whenever
+    the voice has a short transcribed clip. Hindi — IndicF5 0.86 / 3.8 % CER vs XTTS 0.76 /
+    12 %, but ~10× slower, so XTTS stays the default and IndicF5 is offered. Built-in voices
+    use XTTS: their voiceprint *is* XTTS studio data."""
+    from app.services.voices import transcript_reference_or_none
+
+    def ok(name: str) -> bool:
+        return name in registry.engine_names() and registry.get_engine(name).availability().ok
+
+    alternatives: list[dict[str, str]] = []
+    if voice.source == "builtin":
+        return {
+            "engine": "xtts",
+            "reason": "Built-in voices are native to XTTS-v2.",
+            "alternatives": alternatives,
+        }
+    if language == "en" and ok("f5_mlx"):
+        if transcript_reference_or_none(session, voice, 12.0) is not None:
+            return {
+                "engine": "f5_mlx",
+                "reason": "Closest match to the original voice (slower than XTTS).",
+                "alternatives": [{"engine": "xtts", "note": "Faster, less like the voice."}],
+            }
+        alternatives.append(
+            {"engine": "f5_mlx", "note": "Sounds much closer once the clips are transcribed."}
+        )
+    if language == "hi" and ok("indicf5"):
+        alternatives.append(
+            {"engine": "indicf5", "note": "Most accurate Hindi, but about 10× slower."}
+        )
+    return {
+        "engine": "xtts",
+        "reason": "Fast, and works for every voice.",
+        "alternatives": alternatives,
+    }
+
+
 def _check_voice(session: Session, voice: Voice, eng) -> None:  # noqa: ANN001
     if not (voice.consent_note or "").strip():
         raise Invalid(
@@ -134,7 +173,13 @@ def create_generation(
             f"Script is too long (max {MAX_SCRIPT_CHARS:,} characters).", code="script_too_long"
         )
 
-    engine_name = engine or get_settings().default_engine
+    configured = get_settings().default_engine
+    if engine:
+        engine_name = engine
+    elif configured != "auto":
+        engine_name = configured  # the user forced one engine for everything
+    else:
+        engine_name = recommend_engine(session, voice, language)["engine"]
     if engine_name not in registry.engine_names():
         raise Invalid(f"Unknown engine '{engine_name}'.", code="engine_unknown")
     eng = registry.get_engine(engine_name)
@@ -390,6 +435,9 @@ def run_generation(ctx: JobContext, payload: dict[str, Any]) -> dict[str, Any]:
         gen.audio_path = storage.rel(final)
         gen.duration_seconds = round(len(stitched) / sr, 2)
         gen.compute_seconds = round(time.perf_counter() - t_start, 2)
+        if not dialogue_mode:
+            ctx.progress(0.985, "scoring", "Checking how close it sounds…")
+            gen.similarity = _measure_similarity(s, voice, stitched, sr)
         gen.status = "done"
         s.commit()
         ctx.progress(
@@ -407,6 +455,19 @@ def run_generation(ctx: JobContext, payload: dict[str, Any]) -> dict[str, Any]:
             "device": gen.device,
             "voiceprint_cached": not fresh,
         }
+
+
+def _measure_similarity(session: Session, voice: Voice, audio_arr, sr: int) -> float | None:  # noqa: ANN001
+    """Speaker similarity of the output to the voice's own clips. Never fails a generation."""
+    try:
+        from app.services import similarity
+        from app.services.voices import voice_embedding
+
+        ref = voice_embedding(session, voice)
+        return round(similarity.cosine(similarity.embed_array(audio_arr, sr), ref), 3)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("similarity not measured for voice %s: %s", voice.id, exc)
+        return None
 
 
 @on_job_failure("generate")

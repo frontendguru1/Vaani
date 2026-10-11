@@ -81,10 +81,13 @@ class XTTSEngine(TTSEngine):
     def max_chunk_chars(self, language: str) -> int:
         return self._CHAR_LIMITS.get(language, 200)
 
+    # Bump when voiceprint creation changes, so cached voiceprints are rebuilt.
+    PROFILE_REV = "tuned1"
+
     @property
     def version(self) -> str:
         try:
-            return f"coqui-tts {importlib.metadata.version('coqui-tts')}"
+            return f"coqui-tts {importlib.metadata.version('coqui-tts')}+{self.PROFILE_REV}"
         except importlib.metadata.PackageNotFoundError:
             return "unknown"
 
@@ -186,9 +189,16 @@ class XTTSEngine(TTSEngine):
         self.load()
         cache_dir.mkdir(parents=True, exist_ok=True)
         with self._lock, torch.inference_mode():
+            # Use the model's tuned conditioning (config: 30 s, averaged over 4 s chunks).
+            # The method's own defaults look at only the first 6 s of reference audio, which
+            # measurably lowered speaker similarity.
+            cfg = self._model.config
             gpt_cond_latent, speaker_embedding = self._model.get_conditioning_latents(
                 audio_path=[str(p) for p in reference_files],
-                max_ref_length=30,
+                max_ref_length=getattr(cfg, "max_ref_len", 30),
+                gpt_cond_len=getattr(cfg, "gpt_cond_len", 30),
+                gpt_cond_chunk_len=getattr(cfg, "gpt_cond_chunk_len", 4),
+                sound_norm_refs=getattr(cfg, "sound_norm_refs", False),
             )
         torch.save(
             {
@@ -223,7 +233,17 @@ class XTTSEngine(TTSEngine):
             raise EngineError(f"XTTS does not support language '{language}'")
         self.load()
         gpt, spk = self._get_latents(profile)
-        kwargs = {k: options[k] for k in ("temperature", "speed", "top_p", "top_k") if k in options}
+        # Start from the model's tuned sampling settings (inference()'s own defaults differ,
+        # e.g. repetition_penalty 10 instead of the config's 5), then apply user options.
+        cfg = self._model.config
+        kwargs = {
+            k: getattr(cfg, k)
+            for k in ("temperature", "length_penalty", "repetition_penalty", "top_k", "top_p")
+            if hasattr(cfg, k)
+        }
+        kwargs.update(
+            {k: options[k] for k in ("temperature", "speed", "top_p", "top_k") if k in options}
+        )
         with self._lock, torch.inference_mode():
             out = self._model.inference(text, language, gpt, spk, **kwargs)
         audio = np.asarray(out["wav"], dtype=np.float32)

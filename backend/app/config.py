@@ -23,7 +23,8 @@ class Settings(BaseSettings):
     # DATABASE_URL is conventionally unprefixed.
     database_url: str = Field(default="", validation_alias="DATABASE_URL")
     device: Literal["auto", "mps", "cpu"] = "auto"
-    default_engine: str = "xtts"
+    # "auto" = pick per voice and language (generation.recommend_engine); or force one engine.
+    default_engine: str = "auto"
     # Per-engine device override (XTTS on MPS has known hangs; benchmark decides).
     xtts_device: Literal["auto", "mps", "cpu"] | None = None
     # F5-TTS MLX weights: None = full precision, 4 or 8 = quantized (smaller, slightly worse).

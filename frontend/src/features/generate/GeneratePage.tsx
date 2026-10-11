@@ -16,6 +16,7 @@ import { useJobEvents } from "../../lib/useJobEvents";
 import { voiceColors } from "../../lib/voiceColor";
 import { spring, variants } from "../../motion/tokens";
 import { ScriptEditor, type ScriptEditorHandle } from "./ScriptEditor";
+import { similarityColor, similarityLabel } from "../../lib/similarity";
 import { findPauses, pauseLabel } from "../../lib/pauses";
 import { findSpeakerTags } from "../../lib/dialogue";
 import { AppliedChips } from "../pronunciation/PronunciationPage";
@@ -68,6 +69,9 @@ export function GeneratePage() {
   const voice = ready.find((v) => v.id === voiceId) ?? null;
   const [language, setLanguage] = useState<string>("en");
   const [engine, setEngine] = useState<string | null>(null);
+  const [engineTouched, setEngineTouched] = useState(false); // user picked one by hand
+  const [showOriginal, setShowOriginal] = useState(false);
+  const [showBuiltins, setShowBuiltins] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [script, setScript] = useState(readDraft);
   const [job, setJob] = useState<string | null>(null);
@@ -89,10 +93,20 @@ export function GeneratePage() {
   useEffect(() => {
     if (voiceLanguage) setLanguage(voiceLanguage);
   }, [voice?.id, voiceLanguage]);
+  // Recommended engine for this voice + language (measured: F5 sounds much closer for
+  // English when the voice has a transcribed clip). Follows voice/language changes unless
+  // the user chose an engine themselves.
+  const rec = useQuery({
+    queryKey: ["recommend", voiceId, language],
+    queryFn: () => api.recommend(voiceId!, language),
+    enabled: Boolean(voiceId),
+  });
+  useEffect(() => setEngineTouched(false), [voiceId]);
   useEffect(() => {
-    if (engine || !engines.data) return;
-    setEngine(engines.data.find((e) => e.default)?.name ?? engines.data[0]?.name ?? null);
-  }, [engines.data, engine]);
+    if (engineTouched) return;
+    if (rec.data) setEngine(rec.data.engine);
+    else if (!engine && engines.data) setEngine(engines.data.find((e) => e.default)?.name ?? engines.data[0]?.name ?? null);
+  }, [rec.data, engines.data, engineTouched, engine]);
   useEffect(() => {
     try {
       localStorage.setItem(DRAFT_KEY, script);
@@ -159,6 +173,9 @@ export function GeneratePage() {
     end: t.end,
     color: t.voiceId && readyIds.has(t.voiceId) ? voiceColors(t.voiceId).solid : null,
   }));
+  const ownCount = ready.filter((v) => v.source !== "builtin").length;
+  const builtinCount = ready.length - ownCount;
+  const builtinsOpen = showBuiltins || ownCount === 0;
   const nameOf = (id: string) => allVoices.find((v) => v.id === id)?.name ?? "?";
   // The orb and highlight take the colour of whoever is speaking right now.
   const speakingId = working ? (current?.voiceId ?? voice?.id) : (playVoice ?? voice?.id);
@@ -252,7 +269,7 @@ export function GeneratePage() {
               <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Add a line for a speaker">
                 <MessagesSquare size={13} aria-hidden />
                 <span className="mr-1">Add a line for</span>
-                {ready.map((v) => (
+                {ready.filter((v) => v.source !== "builtin" || builtinsOpen || speakerIds.includes(v.id) || v.id === voiceId).map((v) => (
                   <button key={v.id} type="button" disabled={working} onClick={() => editor.current?.insertLine(`[${v.name}]: `)}
                     className="flex items-center gap-1.5 rounded-full border border-line py-0.5 pr-2.5 pl-1 text-[11px] text-muted transition-colors hover:text-ink disabled:opacity-40"
                     style={{ borderColor: voiceColors(v.id).soft }}>
@@ -292,7 +309,10 @@ export function GeneratePage() {
             <div>
               <h2 className="mb-2 text-sm font-medium">Voice</h2>
               <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Voice">
-                {[...ready].sort((a, b) => Number(a.source === "builtin") - Number(b.source === "builtin")).map((v, i, arr) => {
+                {[...ready]
+                  .sort((a, b) => Number(a.source === "builtin") - Number(b.source === "builtin"))
+                  .filter((v) => v.source !== "builtin" || builtinsOpen || v.id === voiceId)
+                  .map((v, i, arr) => {
                   const firstBuiltin = v.source === "builtin" && (i === 0 || arr[i - 1].source !== "builtin");
                   const c = voiceColors(v.id);
                   const on = v.id === voiceId;
@@ -316,6 +336,12 @@ export function GeneratePage() {
                   );
                 })}
               </div>
+              {ownCount > 0 && builtinCount > 0 && (
+                <button type="button" onClick={() => setShowBuiltins((v) => !v)} aria-expanded={builtinsOpen}
+                  className="mt-2 text-xs text-violet-soft hover:underline">
+                  {builtinsOpen ? "Hide built-in voices" : `Show ${builtinCount} built-in voices`}
+                </button>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -334,7 +360,7 @@ export function GeneratePage() {
               </div>
               <div>
                 <label htmlFor="engine" className="mb-2 block text-sm font-medium">Engine</label>
-                <select id="engine" value={engine ?? ""} onChange={(e) => setEngine(e.target.value)} disabled={working}
+                <select id="engine" value={engine ?? ""} onChange={(e) => { setEngine(e.target.value); setEngineTouched(true); }} disabled={working}
                   className="field !py-2 text-sm">
                   {engines.data?.map((e) => (
                     <option key={e.name} value={e.name} disabled={!e.available || !e.languages.includes(language)}>
@@ -345,11 +371,19 @@ export function GeneratePage() {
               </div>
             </div>
             {engineInfo && !engineInfo.available && <p className="text-xs text-okay">{engineInfo.reason}</p>}
+            {rec.data && engine === rec.data.engine && (
+              <p className="text-xs text-muted"><span className="text-good">Recommended.</span> {rec.data.reason}</p>
+            )}
+            {rec.data?.alternatives.filter((a) => a.engine !== engine).map((a) => (
+              <button key={a.engine} type="button" disabled={working}
+                onClick={() => { setEngine(a.engine); setEngineTouched(true); }}
+                className="block text-left text-xs text-violet-soft hover:underline disabled:opacity-50">
+                Try {engines.data?.find((e) => e.name === a.engine)?.label ?? a.engine}: {a.note}
+              </button>
+            ))}
             {engineInfo?.needs_transcript && engineInfo.available && voice && (
               voice.has_transcripts ? (
-                <p className="text-xs text-muted">
-                  {engineInfo.label} copies the voice from a {engineInfo.max_ref_seconds ?? 12}-second transcribed clip. If it sounds off, check the words under Voices → Clips.
-                </p>
+                <p className="text-xs text-faint">If it sounds off, check the clip’s words under Voices → Clips.</p>
               ) : (
                 <TranscribeCallout voiceId={voice.id} voiceName={voice.name} engineLabel={engineInfo.label} />
               )
@@ -424,9 +458,31 @@ export function GeneratePage() {
                 setPlayVoice(c && t > 0 ? (c.voice_id ?? gen.voice_id) : null);
               }}
             />
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              {gen.similarity != null && gen.voice_id && !(gen.speakers.length > 1) && (
+                <span className="inline-flex items-center gap-2 rounded-full border border-line px-3 py-1 text-xs" aria-label="How close it sounds">
+                  <span className="size-2 rounded-full" style={{ background: similarityColor(gen.similarity) }} />
+                  Sounds {similarityLabel(gen.similarity)} to {voice?.name ?? "the voice"}
+                  <span className="font-mono text-muted">{Math.round(Math.max(0, gen.similarity) * 100)}%</span>
+                </span>
+              )}
+              {voice?.has_preview && (
+                <Button size="sm" variant="quiet" onClick={() => setShowOriginal((v) => !v)} aria-expanded={showOriginal}>
+                  {showOriginal ? "Hide the original" : "Compare with the original"}
+                </Button>
+              )}
+            </div>
+            <AnimatePresence initial={false}>
+              {showOriginal && voice?.has_preview && (
+                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+                  <p className="mt-3 mb-2 text-xs text-faint">Original: a clip {voice.name}’s voice was made from</p>
+                  <AudioPlayer src={audioUrl.preview(voice.id)} color="var(--color-text-faint)" compact />
+                </motion.div>
+              )}
+            </AnimatePresence>
             <p className="mt-3 text-xs text-faint">
               {gen.chunk_count} sentences, {engines.data?.find((e) => e.name === gen.engine)?.label ?? gen.engine} on{" "}
-              {gen.device === "mps" ? "the Apple GPU" : gen.device === "cpu" ? "the CPU" : gen.device}.
+              {gen.device === "mps" ? "the Apple GPU" : gen.device === "mlx-gpu" ? "the Apple GPU (MLX)" : gen.device === "cpu" ? "the CPU" : gen.device}.
             </p>
           </motion.section>
         )}

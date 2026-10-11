@@ -118,6 +118,14 @@ def builtin_missing(session: Session = Depends(get_session)):
     return [e["key"] for e in builtin_voices.missing(session)] if builtin_voices.can_seed() else []
 
 
+@router.get("/{voice_id}/recommend")
+def recommend(voice_id: str, language: str = "en", session: Session = Depends(get_session)):
+    """The engine expected to sound most like this voice for a language, and why."""
+    from app.services.generation import recommend_engine
+
+    return recommend_engine(session, voices.get_voice(session, voice_id), language)
+
+
 @router.get("/{voice_id}", response_model=VoiceDetail)
 def get_voice(voice_id: str, session: Session = Depends(get_session)):
     return _detail(session, voices.get_voice(session, voice_id))

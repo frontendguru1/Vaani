@@ -6,7 +6,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, BinaryIO
+from typing import TYPE_CHECKING, Any, BinaryIO
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
@@ -19,7 +19,10 @@ from app.services import audio, storage, transcription
 from app.services.errors import Invalid, NotFound
 from app.services.jobs import JobContext, get_runner, job_handler, on_job_failure
 from app.services.preprocessing import process_sample
-from app.services.quality import QualityReport, summarize
+from app.services.quality import QualityReport, apply_speaker_check, summarize
+
+if TYPE_CHECKING:
+    import numpy as np
 
 log = logging.getLogger("vaani.voices")
 
@@ -255,28 +258,69 @@ def delete_voice(session: Session, voice_id: str) -> DeleteReport:
 
 
 def _reference_segments(voice: Voice, budget: float) -> list[Path]:
-    """Cleanest segments first (by sample quality score, then length), up to `budget` s."""
-    scored: list[tuple[int, float, Path]] = []
-    for s in voice.samples:
-        score = (s.quality or {}).get("score", 50)
-        if (s.quality or {}).get("rating") == "poor" and len(voice.samples) > 1:
-            continue
-        for seg in s.segments or []:
-            scored.append((score, seg["duration"], storage.resolve(seg["path"])))
-    if not scored:  # every clip rated poor: use them anyway rather than fail outright
-        scored = [
-            ((s.quality or {}).get("score", 0), seg["duration"], storage.resolve(seg["path"]))
-            for s in voice.samples
-            for seg in s.segments or []
-        ]
-    scored.sort(key=lambda t: (-t[0], -t[1]))
+    """Segments for the voiceprint: drop ones that sound like a different person (low speaker
+    "match", from voice_embedding), skip clips rated poor, then take the best-matching and
+    cleanest first, up to `budget` seconds."""
+    from app.services.similarity import OUTLIER_BELOW
+
+    def collect(skip_poor: bool, skip_outliers: bool) -> list[tuple[float, int, float, Path]]:
+        out = []
+        for s in voice.samples:
+            q = s.quality or {}
+            if skip_poor and q.get("rating") == "poor":
+                continue
+            for seg in s.segments or []:
+                match = seg.get("match")
+                if skip_outliers and match is not None and match < OUTLIER_BELOW:
+                    continue
+                out.append(
+                    (
+                        match if match is not None else 0.0,
+                        q.get("score", 50),
+                        seg["duration"],
+                        storage.resolve(seg["path"]),
+                    )
+                )
+        return out
+
+    multi = len(voice.samples) > 1
+    scored = collect(multi, True) or collect(False, True) or collect(False, False)
+    scored.sort(key=lambda t: (-round(t[0], 1), -t[1], -t[2]))
     picked, total = [], 0.0
-    for _score, dur, path in scored:
+    for _m, _score, dur, path in scored:
         if total >= budget:
             break
         picked.append(path)
         total += dur
     return picked
+
+
+def voice_embedding(session: Session, voice: Voice) -> np.ndarray:
+    """The voice's speaker embedding (cached as .npy). Computing it also scores every
+    segment's "match" to the majority speaker, which reference selection uses."""
+    import numpy as np
+
+    from app.services import similarity
+
+    if voice.embedding_path and storage.resolve(voice.embedding_path).is_file():
+        return np.load(storage.resolve(voice.embedding_path))
+    segs = [(smp, i, seg) for smp in voice.samples for i, seg in enumerate(smp.segments or [])]
+    if not segs:
+        raise EngineError("No speech to measure.")
+    embs = [similarity.embed_file(storage.resolve(seg["path"])) for _smp, _i, seg in segs]
+    centroid, matches = similarity.robust_centroid(embs)
+    by_sample: dict[str, list] = {}
+    for (smp, i, seg), m in zip(segs, matches, strict=True):
+        by_sample.setdefault(smp.id, list(smp.segments or []))[i] = {**seg, "match": m}
+    for smp in voice.samples:
+        if smp.id in by_sample:
+            smp.segments = by_sample[smp.id]
+    path = storage.voice_dir(voice.id) / "speaker_embedding.npy"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.save(path, centroid)
+    voice.embedding_path = storage.rel(path)
+    session.commit()
+    return centroid
 
 
 def transcript_reference_or_none(session: Session, voice: Voice, max_seconds: float):
@@ -298,7 +342,15 @@ class TranscriptRef:
 def _transcript_reference(voice: Voice, max_seconds: float) -> TranscriptRef:
     """A short clip whose words are known exactly: a typed transcript for a short clip, or
     the longest run of Whisper phrases that fits the engine's limit. Best clip first."""
-    for s in sorted(voice.samples, key=lambda x: -(x.quality or {}).get("score", 0)):
+
+    def best_match(smp: VoiceSample) -> float:
+        ms = [seg.get("match") for seg in smp.segments or [] if seg.get("match") is not None]
+        return max(ms) if ms else 0.0
+
+    ranked = sorted(
+        voice.samples, key=lambda x: (-round(best_match(x), 1), -(x.quality or {}).get("score", 0))
+    )
+    for s in ranked:
         if not s.processed_path:
             continue
         if (
@@ -369,12 +421,22 @@ def ensure_profile(
         ctx.progress(lo + (hi - lo) * 0.3, "voiceprint", "Extracting voiceprint…")
     cache = storage.engine_cache_dir(voice.id, engine_name)
     storage.remove_tree(cache)
-    if engine.needs_transcript:
+    if voice.source == "builtin" and voice.builtin_key in engine.builtin_speakers():
+        profile = engine.create_builtin_voice(voice.builtin_key, cache)
+    elif engine.needs_transcript:
+        try:
+            voice_embedding(session, voice)  # so the best-matching clip is picked
+        except Exception as exc:  # noqa: BLE001
+            log.warning("speaker check skipped for %s: %s", voice.id, exc)
         ref = _transcript_reference(voice, getattr(engine, "max_ref_seconds", 12.0))
         cache.mkdir(parents=True, exist_ok=True)
         clip = _cut(ref, cache / "ref_src.wav")
         profile = engine.create_voice([clip], cache, [ref.text])
     else:
+        try:
+            voice_embedding(session, voice)  # scores segments so other speakers are left out
+        except Exception as exc:  # noqa: BLE001 - similarity is an aid, never a blocker
+            log.warning("speaker check skipped for %s: %s", voice.id, exc)
         refs = _reference_segments(voice, XTTS_REF_BUDGET)
         if not refs:
             raise EngineError("No usable speech found in this voice's samples.")
@@ -523,8 +585,22 @@ def run_create_voice(ctx: JobContext, payload: dict[str, Any]) -> dict[str, Any]
                 duration=result.duration,
             )
 
-        # 2. voice-level quality (0.55 → 0.6)
+        # 2. voice-level quality (0.55 → 0.6), with a speaker check: are all clips the same
+        #    person? (Replaces the pitch-based guess when the speaker model is available.)
         ctx.progress(0.56, "quality", "Checking quality…")
+        try:
+            from app.services.similarity import OUTLIER_BELOW
+
+            voice_embedding(s, voice)
+            for i, smp in enumerate(samples):
+                ms = [
+                    seg.get("match") for seg in smp.segments or [] if seg.get("match") is not None
+                ]
+                reports[i] = apply_speaker_check(reports[i], min(ms) if ms else None, OUTLIER_BELOW)
+                smp.quality = reports[i].to_dict()
+            s.commit()
+        except Exception as exc:  # noqa: BLE001 - the check is an aid, never a blocker
+            log.warning("speaker check skipped for %s: %s", voice_id, exc)
         summary = summarize(reports)
         voice.quality_rating = summary["rating"]
         voice.quality_report = summary
@@ -558,7 +634,7 @@ def run_create_voice(ctx: JobContext, payload: dict[str, Any]) -> dict[str, Any]
 
         # 4. voiceprint for the default engine (0.7 → 0.95). If the engine isn't
         #    available the voice is still usable; the voiceprint is built on first generation.
-        engine_name = settings.default_engine
+        engine_name = "xtts" if settings.default_engine == "auto" else settings.default_engine
         voiceprint = "skipped"
         engine = registry.get_engine(engine_name)
         if engine.availability().ok:

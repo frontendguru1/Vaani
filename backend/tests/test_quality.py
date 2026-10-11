@@ -138,3 +138,18 @@ def test_summary_mentions_skipped_poor_clips():
     s = summarize([good, bad])
     assert s["rating"] == "good"
     assert any(i["code"] == "poor_clips_skipped" for i in s["issues"])
+
+
+def test_speaker_check_overrides_the_pitch_guess():
+    from app.services.quality import Issue, apply_speaker_check
+
+    r = analyze(
+        np.concatenate([silence(0.5), tone_speech(20), silence(0.5)]), SR, check_pitch=False
+    )
+    r.issues.append(Issue("okay", "multiple_speakers", "Pitch varies a lot"))
+    r = r.__class__(**{**r.__dict__, "rating": "okay", "score": 62})
+    same = apply_speaker_check(r, 0.9, 0.45)
+    assert same.rating == "good" and not any(i.code == "multiple_speakers" for i in same.issues)
+    other = apply_speaker_check(r, 0.2, 0.45)
+    assert [i.code for i in other.issues] == ["different_speaker"] and other.rating == "okay"
+    assert apply_speaker_check(r, None, 0.45) is r  # no speaker model: keep the guess

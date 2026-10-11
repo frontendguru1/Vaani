@@ -52,3 +52,26 @@ def db():
     set_runner(None)
     for sub in ("voices", "generations"):
         shutil.rmtree(_TMP / sub, ignore_errors=True)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_speaker_model(monkeypatch):
+    """Never load the real SpeechBrain model in tests (89 MB, ~20 s); use a pitch-based fake.
+    Tests that need specific behaviour patch similarity themselves."""
+    import numpy as np
+    import soundfile as sf
+
+    from app.services import similarity
+
+    def fake_array(audio, sr):
+        spec = np.abs(np.fft.rfft(audio[: sr * 2] if len(audio) > sr else audio))
+        f0 = np.argmax(spec[1:]) * sr / (2 * max(1, len(spec) - 1)) + 1
+        v = np.array([np.cos(f0 / 60), np.sin(f0 / 60), 0.2])
+        return v / np.linalg.norm(v)
+
+    def fake_file(path):
+        y, sr = sf.read(str(path), dtype="float32")
+        return fake_array(y if y.ndim == 1 else y.mean(axis=1), sr)
+
+    monkeypatch.setattr(similarity, "embed_array", fake_array)
+    monkeypatch.setattr(similarity, "embed_file", fake_file)

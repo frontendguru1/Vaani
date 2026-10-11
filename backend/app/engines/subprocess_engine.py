@@ -245,7 +245,9 @@ class SubprocessEngine(TTSEngine):
                         "ref_text": profile.data["ref_text"],
                         "out": str(out),
                         "options": {
-                            k: v for k, v in options.items() if k in ("speed", "steps", "seed")
+                            k: v
+                            for k, v in options.items()
+                            if k in ("speed", "steps", "seed", "method")
                         },
                     }
                 )

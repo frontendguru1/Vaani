@@ -53,6 +53,7 @@ class GenerationOut(BaseModel):
     duration_seconds: float | None
     compute_seconds: float | None
     chunk_count: int
+    similarity: float | None = None
     created_at: datetime
 
 

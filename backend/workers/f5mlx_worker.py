@@ -25,6 +25,7 @@ def _normal_int_shape(shape=(), *args, **kwargs):
 mx.random.normal = _normal_int_shape
 
 SAMPLE_RATE = 24_000
+HOP_LENGTH = 256  # mel frames are 256 samples, as in f5_tts_mlx
 TARGET_RMS = 0.1  # same as f5_tts_mlx.generate
 MODEL = "lucasnewman/f5-tts-mlx"
 
@@ -53,15 +54,27 @@ def synthesize(req):
     rms = mx.sqrt(mx.mean(mx.square(ref)))
     if rms < TARGET_RMS:
         ref = ref * TARGET_RMS / rms
+    speed = float(opts.get("speed", 1.0))
+    # Length of the output in mel frames. Upstream F5-TTS's heuristic (also
+    # f5_tts_mlx.generate.estimated_duration): reference frames + the reference's speaking
+    # rate times the new text's length. With duration=None the bundled duration predictor
+    # is used instead, and it under-estimates badly: 4-5 s sentences came out ~2 s long with
+    # words cut off.
+    ref_frames = int(ref.shape[0]) // HOP_LENGTH
+    ref_len = max(1, len(req["ref_text"].encode("utf-8")))
+    gen_len = len(req["text"].encode("utf-8"))
+    duration = ref_frames + int(ref_frames / ref_len * gen_len / speed)
     text = convert_char_to_pinyin([req["ref_text"] + " " + req["text"]])
     t0 = time.perf_counter()
     wave, _ = model.sample(
         mx.expand_dims(ref, axis=0),
         text=text,
-        duration=None,
-        steps=int(opts.get("steps", 8)),
-        method="rk4",
-        speed=float(opts.get("speed", 1.0)),
+        duration=duration,
+        # Euler/16 measured on a real voice: same similarity as RK4/8 (0.797 vs 0.802), no lost
+        # words, ~20 % faster. Euler/8 is faster still but garbled 35 % of words.
+        steps=int(opts.get("steps", 16)),
+        method=opts.get("method", "euler"),
+        speed=speed,
         cfg_strength=2.0,
         sway_sampling_coef=-1.0,
         seed=opts.get("seed"),

@@ -20,6 +20,7 @@ dependencies = [
     "soundfile>=0.14.0",
     "librosa>=0.11.0",
     "mlx-whisper>=0.4.3",
+    "speechbrain>=1.1",
 ]
 
 [dependency-groups]

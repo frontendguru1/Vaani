@@ -10,6 +10,7 @@ router = APIRouter(prefix="/engines", tags=["engines"])
 @router.get("", response_model=list[EngineOut])
 def list_engines():
     default = get_settings().default_engine
+    default = "xtts" if default == "auto" else default
     out = []
     for eng in registry.all_engines():
         avail = eng.availability()

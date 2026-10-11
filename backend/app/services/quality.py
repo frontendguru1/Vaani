@@ -3,7 +3,7 @@ hint. Produces a Good / Okay / Poor rating with human-readable reasons."""
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any, Literal
 
 import numpy as np
@@ -257,3 +257,31 @@ def summarize(reports: list[QualityReport]) -> dict[str, Any]:
         "sample_ratings": sample_ratings,
         "issues": [asdict(i) for i in issues],
     }
+
+
+def apply_speaker_check(
+    report: QualityReport, match: float | None, outlier_below: float
+) -> QualityReport:
+    """Replace the pitch-spread guess with the speaker model's verdict.
+
+    The pitch heuristic flags lively voices (children especially) as "maybe several
+    speakers": on a real 13-clip voice it warned on 5 clips while the speaker model matched
+    all of them at 0.81-0.92. When a match score exists, it decides instead."""
+    if match is None:
+        return report
+    issues = [i for i in report.issues if i.code != "multiple_speakers"]
+    if match < outlier_below:
+        issues.append(
+            Issue(
+                "okay",
+                "different_speaker",
+                "This clip sounds like a different person, so it isn't used for the voiceprint.",
+            )
+        )
+    rating = _worst([i.severity for i in issues])
+    removed_penalty = any(i.code == "multiple_speakers" for i in report.issues)
+    score = report.score + (8 if removed_penalty else 0)
+    score = {"good": max(score, 70), "okay": int(np.clip(score, 40, 69)), "poor": min(score, 39)}[
+        rating
+    ]
+    return replace(report, rating=rating, score=int(score), issues=issues)
