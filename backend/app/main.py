@@ -15,6 +15,7 @@ from app.api.v1 import api_router  # noqa: E402
 from app.config import get_settings  # noqa: E402
 from app.engines import registry  # noqa: E402
 from app.engines.base import EngineError  # noqa: E402
+from app.security import install as install_security  # noqa: E402
 from app.services.audio import AudioError  # noqa: E402
 from app.services.errors import ServiceError  # noqa: E402
 from app.services.jobs import get_runner  # noqa: E402
@@ -38,6 +39,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="Vaani", version=__version__, lifespan=lifespan)
+install_security(app)
 app.include_router(api_router)
 
 

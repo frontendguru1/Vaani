@@ -135,6 +135,7 @@ export interface Engine {
   loaded: boolean;
   device: string | null;
   needs_transcript: boolean;
+  max_ref_seconds: number | null;
   license: string;
   default: boolean;
 }

@@ -94,7 +94,7 @@ def quality_check(file: UploadFile = File(...)):
         raise Invalid(f"Unsupported file type .{ext or '?'}", code="file_type")
     with tempfile.TemporaryDirectory(dir=storage.data_dir()) as tmp:
         src = Path(tmp) / f"in.{ext}"
-        src.write_bytes(file.file.read())
+        voices.copy_limited(file.file, src, voices.MAX_FILE_BYTES, file.filename or "file")
         wav = audio.convert_to_wav(src, Path(tmp) / "a.wav", 24_000)
         data, sr = audio.read_mono(wav)
         report = analyze(data, sr)

@@ -160,3 +160,15 @@ def test_cold_model_reports_loading_step(db):
     steps = [e["step"] for e in events]
     assert "loading_model" in steps
     assert steps.index("loading_model") < steps.index("synthesizing")
+
+
+def test_transcript_engine_fails_fast_without_a_transcribed_clip(db, monkeypatch):
+    s, runner = db
+    voice, _ = make_voice(s, runner)
+    monkeypatch.setattr(FakeEngine, "needs_transcript", True)
+    monkeypatch.setattr(FakeEngine, "max_ref_seconds", 12.0, raising=False)
+    with pytest.raises(Invalid) as e:
+        generation.create_generation(s, voice_id=voice.id, script="Hello there.", language="en")
+    assert e.value.code == "needs_transcript"
+    assert "12 seconds" in e.value.message
+    assert s.scalar(select(Job).where(Job.kind == "generate")) is None  # nothing queued

@@ -107,30 +107,34 @@ export function Waveform({
         <clipPath id={`played-${id}`}>
           <rect x="0" y="0" width={width * progress} height={height} />
         </clipPath>
+        {/* Draw-in: one clip rect sweeps left→right (cheap: one animated node per waveform). */}
+        <clipPath id={`reveal-${id}`}>
+          <motion.rect
+            x="0"
+            y="0"
+            height={height}
+            initial={{ width: reduced ? width : 0 }}
+            animate={{ width }}
+            transition={{ duration: reduced ? 0 : 0.7, ease: ease.out }}
+          />
+        </clipPath>
       </defs>
-      {[false, true].map((played) => (
-        <g key={String(played)} clipPath={played ? `url(#played-${id})` : undefined}>
-          {peaks.map((p, i) => {
-            const h = Math.max(2, p * (height - 4));
-            return (
-              <motion.rect
-                key={i}
-                x={i * (barW + gap)}
-                y={(height - h) / 2}
-                width={barW}
-                height={h}
-                rx={barW / 2}
-                fill={color}
-                opacity={played ? 1 : 0.32}
-                style={{ originY: 0.5, transformBox: "fill-box" }}
-                initial={reduced ? { opacity: 0 } : { scaleY: 0 }}
-                animate={reduced ? { opacity: played ? 1 : 0.32 } : { scaleY: 1 }}
-                transition={{ duration: duration.slow, ease: ease.out, delay: reduced ? 0 : i * 0.006 }}
-              />
-            );
-          })}
-        </g>
-      ))}
+      <motion.g
+        clipPath={`url(#reveal-${id})`}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: duration.fast }}
+      >
+        {[false, true].map((played) => (
+          <g key={String(played)} clipPath={played ? `url(#played-${id})` : undefined}
+            fill={color} opacity={played ? 1 : 0.32}>
+            {peaks.map((p, i) => {
+              const h = Math.max(2, p * (height - 4));
+              return <rect key={i} x={i * (barW + gap)} y={(height - h) / 2} width={barW} height={h} rx={barW / 2} />;
+            })}
+          </g>
+        ))}
+      </motion.g>
     </svg>
     </div>
   );

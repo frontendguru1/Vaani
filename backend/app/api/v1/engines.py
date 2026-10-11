@@ -23,6 +23,7 @@ def list_engines():
                 loaded=eng.is_loaded,
                 device=eng.device,
                 needs_transcript=eng.needs_transcript,
+                max_ref_seconds=getattr(eng, "max_ref_seconds", None),
                 license=eng.license,
                 default=eng.name == default,
             )

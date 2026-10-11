@@ -14,6 +14,69 @@ class AudioError(RuntimeError):
     pass
 
 
+FFMPEG_TIMEOUT = 180  # seconds; a crafted file must not stall a worker thread forever
+# Containers we accept. ffmpeg sniffs the format from the content, not the extension, so a
+# ".mp3" could really be an HLS/concat playlist that makes ffmpeg open other files or URLs.
+ALLOWED_FORMATS = {
+    "wav",
+    "mp3",
+    "ogg",
+    "flac",
+    "aac",
+    "aiff",
+    "webm",
+    "matroska",
+    "mov",
+    "mp4",
+    "m4a",
+    "3gp",
+    "3g2",
+    "mj2",
+    "opus",
+    "caf",
+}
+_INPUT_FLAGS = ["-protocol_whitelist", "file,pipe"]
+
+
+def ffprobe_bin() -> str:
+    path = shutil.which("ffprobe")
+    if not path:
+        raise AudioError("ffprobe not found — install ffmpeg with `brew install ffmpeg`")
+    return path
+
+
+def check_format(src: Path) -> str:
+    """Refuse anything that isn't a plain audio/video container (playlists, images, …)."""
+    cmd = [
+        ffprobe_bin(),
+        "-v",
+        "error",
+        *_INPUT_FLAGS,
+        "-show_entries",
+        "format=format_name",
+        "-of",
+        "default=nw=1:nk=1",
+        str(src),
+    ]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    except subprocess.TimeoutExpired as exc:
+        raise AudioError(f"{src.name}: took too long to inspect") from exc
+    names = set(proc.stdout.strip().split(","))
+    if proc.returncode != 0 or not names & ALLOWED_FORMATS:
+        raise AudioError(f"{src.name} isn't an audio file Vaani can read.")
+    return proc.stdout.strip()
+
+
+def run_ffmpeg(cmd: list[str], what: str) -> None:
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=FFMPEG_TIMEOUT)
+    except subprocess.TimeoutExpired as exc:
+        raise AudioError(f"{what} took longer than {FFMPEG_TIMEOUT}s and was stopped") from exc
+    if proc.returncode != 0:
+        raise AudioError(f"{what} failed: {proc.stderr.strip()[:300]}")
+
+
 def ffmpeg_bin() -> str:
     path = shutil.which("ffmpeg")
     if not path:
@@ -26,13 +89,12 @@ def convert_to_wav(
 ) -> Path:
     """Decode anything ffmpeg understands into mono 16-bit PCM WAV at `sample_rate`."""
     dst.parent.mkdir(parents=True, exist_ok=True)
-    cmd = [ffmpeg_bin(), "-nostdin", "-y", "-loglevel", "error", "-i", str(src)]
+    check_format(src)
+    cmd = [ffmpeg_bin(), "-nostdin", "-y", "-loglevel", "error", *_INPUT_FLAGS, "-i", str(src)]
     if max_seconds:
         cmd += ["-t", f"{max_seconds:.3f}"]
     cmd += ["-ac", "1", "-ar", str(sample_rate), "-c:a", "pcm_s16le", str(dst)]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
-    if proc.returncode != 0:
-        raise AudioError(f"ffmpeg could not decode {src.name}: {proc.stderr.strip()[:300]}")
+    run_ffmpeg(cmd, f"Decoding {src.name}")
     return dst
 
 
@@ -67,7 +129,5 @@ def export_mp3(wav: Path, mp3: Path, bitrate: str = "192k") -> Path:
         bitrate,
         str(mp3),
     ]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
-    if proc.returncode != 0:
-        raise AudioError(f"MP3 export failed: {proc.stderr.strip()[:300]}")
+    run_ffmpeg(cmd, "MP3 export")
     return mp3

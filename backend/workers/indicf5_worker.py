@@ -2,7 +2,6 @@
 own remote code, exactly as the Hugging Face model card shows."""
 
 import importlib.metadata
-import os
 import time
 
 import numpy as np
@@ -10,30 +9,24 @@ import soundfile as sf
 from _protocol import serve
 
 REPO = "ai4bharat/IndicF5"
+# trust_remote_code runs the repo's own model.py. Pin the commit we reviewed (2026-10-11:
+# it only loads the vocoder, vocab and weights; its upload code is under __main__) so a
+# later push to the repo can't change what executes here.
+REVISION = "fb652a96e508091045890dae5bb99fe511facbcf"
 SAMPLE_RATE = 24_000
 model = None
-device = "cpu"
 
 
 def load(_req):
-    global model, device
+    global model
     if model is None:
-        import torch
         from transformers import AutoModel
 
-        model = AutoModel.from_pretrained(REPO, trust_remote_code=True)
-        want = os.environ.get("VAANI_DEVICE", "auto")
-        if want != "cpu" and torch.backends.mps.is_available():
-            try:
-                model = model.to("mps")
-                device = "mps"
-            except Exception as exc:  # noqa: BLE001
-                print(f"IndicF5: MPS move failed ({exc}); using CPU")
-                device = "cpu"
-    return {
-        "device": device,
-        "version": f"IndicF5 (transformers {importlib.metadata.version('transformers')})",
-    }
+        # model.py picks CUDA or CPU itself and torch.compile()s its modules; moving them
+        # to MPS afterwards is fragile, so IndicF5 runs on CPU on a Mac.
+        model = AutoModel.from_pretrained(REPO, trust_remote_code=True, revision=REVISION)
+    version = importlib.metadata.version("transformers")
+    return {"device": "cpu", "version": f"IndicF5@{REVISION[:7]} (transformers {version})"}
 
 
 def synthesize(req):

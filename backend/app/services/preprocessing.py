@@ -11,7 +11,6 @@ Uses only ffmpeg's built-in filters — no extra ML dependencies.
 
 from __future__ import annotations
 
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -62,6 +61,8 @@ def _ffmpeg_clean(src: Path, dst: Path, sr: int, denoise: bool) -> None:
         "-y",
         "-loglevel",
         "error",
+        "-protocol_whitelist",
+        "file,pipe",
         "-i",
         str(src),
         "-af",
@@ -74,9 +75,7 @@ def _ffmpeg_clean(src: Path, dst: Path, sr: int, denoise: bool) -> None:
         "pcm_s16le",
         str(dst),
     ]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
-    if proc.returncode != 0:
-        raise audio.AudioError(f"Cleaning failed: {proc.stderr.strip()[:300]}")
+    audio.run_ffmpeg(cmd, "Cleaning")
 
 
 def process_sample(

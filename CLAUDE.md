@@ -9,7 +9,8 @@ Vaani is a personal, **fully local** voice-cloning app: upload/record clips of a
 - **Phase 2 — Backend core: DONE (2026-10-11).** Voices (upload → clean → quality → voiceprint as a job), library CRUD + hard delete, engine registry + 3 engines, generation with chunking + SSE progress + stitching + MP3, history/regenerate/delete, consistency check. 69 tests.
 - **Phase 3 — Frontend: DONE (2026-10-11).** Voices (bento library, create dialog with drop zone, mic recorder, per-file quality cards, SSE-driven processing stepper + voiceprint + flourish, rename, two-step delete), Generate (voice/engine/language/speed, script editor with live sentence highlight, progress orb, result player with playback-synced highlight, WAV/MP3), History (play, regenerate, delete). Verified with Playwright (desktop, 390px, reduced motion). 15 frontend tests.
 - **Next: Phase 4** — Rahul picks the order of nice-to-haves. Also pending: real-voice listening test + IndicF5 token.
-- Known issues: F5-MLX outputs look short (4.5 s where XTTS says 7 s) — possibly clipped by its duration predictor; needs listening. IndicF5 untested (gated).
+- Known issues: F5-MLX and IndicF5 outputs come out shorter than XTTS's for the same sentence (possible clipping), and IndicF5 is ~20× slower than real time on CPU. Both transcript engines are unusable on a voice until it has a ≤12/15 s clip with its transcript; auto-transcription (Phase 4) would fix that.
+- **Security review done 2026-10-11** (see "Security model" below); all confirmed findings fixed with tests.
 
 ## Stack (versions actually installed)
 
@@ -104,6 +105,17 @@ data/                gitignored: vaani.db, voices/, generations/, benchmarks/, m
 - **Frontend data:** TanStack Query keys `["voices"]`, `["generations"]`, `["engines"]`, `["health"]`; lists poll every 2 s only while something is processing. Jobs: `useJobEvents(jobId, onEvent)` opens an EventSource on `/jobs/{id}/events`, so add new event types to its list. Route transitions live in `App.tsx` (`AnimatedRoutes` passes the frozen `location` to `<Routes>`).
 - **Design identity:** the one bold element is the per-voice colour (`voiceColors(id)`, oklch hue from the id) used on the card, waveform, orb and history stripe. No all-caps eyebrows and no "A · B" meta strings; monospace only for numbers and timers.
 
+## Security model
+
+Single local user, no login. The threat is *other websites in the same browser* reaching 127.0.0.1. `app/security.py`:
+- `TrustedHostMiddleware` (`VAANI_ALLOWED_HOSTS`, default localhost/127.0.0.1/[::1]) blocks DNS rebinding.
+- `OriginGuard` refuses non-GET requests whose `Origin` isn't in `VAANI_ALLOWED_ORIGINS` (the Vite and API origins) or whose `Sec-Fetch-Site` is `cross-site`. This blocks cross-site multipart/bodiless POSTs, which skip CORS preflight. Requests without an Origin (curl, scripts) are allowed.
+- It also enforces a request `Content-Length` cap (`VAANI_MAX_UPLOAD_MB`, 1 GB) and requires a length on multipart; `voices.copy_limited` caps each file at 200 MB while streaming.
+- ffmpeg/ffprobe: `audio.check_format` allowlists container formats (ffmpeg sniffs content, so a ".mp3" could be an HLS/concat playlist), `-protocol_whitelist file,pipe`, and 180 s timeouts.
+- Workers: reader thread + timeouts (load 20 min, call 5 min); a hung worker is killed and the job fails instead of freezing the queue.
+- `trust_remote_code` (IndicF5) is pinned to reviewed commit `fb652a9`. Re-review `model.py` before bumping it.
+- `storage.resolve` refuses paths outside `data/`; upload names go through `safe_filename`; `torch.load` uses the safe default `weights_only=True`.
+
 ## Decision log
 
 - **2026-10-11** uv instead of pip/venv: coqui-tts now recommends it, and it is fast. Python pinned to 3.11 (`backend/.python-version`).
@@ -119,6 +131,7 @@ data/                gitignored: vaani.db, voices/, generations/, benchmarks/, m
 - **2026-10-11** Quality checker is pure numpy + librosa.yin (no ML VAD): energy VAD with 3rd-percentile noise floor; SNR reported as `null` when there are no pauses to measure against; pitch-spread IQR > 6.5 semitones → "maybe multiple speakers" (heuristic, says so).
 - **2026-10-11** Preprocessing uses only ffmpeg filters (highpass, optional `afftdn` denoise, silenceremove ×2 with areverse, `loudnorm` −20 LUFS) — no DeepFilterNet/Demucs download needed.
 - **2026-10-11** **Engine choice still awaiting Rahul's listening test on a real clip.**
+- **2026-10-11** IndicF5 benchmark (Hindi synthetic ref, CPU): RTF ≈ 16–23 (a 3–4 s clip takes 64–91 s), and outputs are shorter than XTTS's (3.9 s vs 7.8 s for the same sentence). XTTS on MPS for the same Hindi lines: RTF ≈ 0.6. **XTTS stays default**; IndicF5 kept as an optional engine for a listening comparison.
 - **2026-10-11** Custom SVG waveform instead of WaveSurfer: themeable, draw-in animation, ~100 lines, no dependency. Native `<select>` for engines (accessible); Radix only for Dialog + Slider.
 - **2026-10-11** Datetimes: `UTCDateTime` TypeDecorator, since SQLite returned naive datetimes and the UI showed "5 h ago" in IST. Same column type underneath, so no migration.
 - **2026-10-11** Voice-level quality summary carries clip reasons up ("1 of 2 clips: …") so every rating has a reason (an "Okay" with no reason was showing).
@@ -144,6 +157,9 @@ data/                gitignored: vaani.db, voices/, generations/, benchmarks/, m
 - **transformers must stay <5**: coqui-tts 0.27.5 imports `isin_mps_friendly`, which 5.x removed (ImportError on `import TTS`).
 - **f5-tts-mlx 0.2.6 vs mlx 0.32**: `mx.random.normal((ch, dur))` fails because `dur` is an mx scalar. `workers/f5mlx_worker.py` wraps `mx.random.normal` to cast shapes to int. Also don't import `f5_tts_mlx.generate` (needs PortAudio) — the worker re-implements its loop with one loaded model.
 - **Worker stdout is the protocol.** `_protocol.serve()` redirects fd 1 to stderr, but imports can print earlier, so the parent skips non-JSON lines.
+- **IndicF5 venv pins** (setup.py doesn't pin, requirements.txt does): `transformers<4.50` (5.x builds models on the meta device and IndicF5's model.py loads its vocoder with real tensors → "Tensor on device cpu is not on the expected device meta"), `numpy<=1.26.4`, `datasets<4` (5.x needs a newer huggingface_hub than transformers 4.49 allows), plus `torchcodec` (newer torchaudio needs it to load audio). See `backend/workers/README.md`.
+- **Offline switch**: worker engines get `HF_HUB_OFFLINE=1` only after one successful load (marker `data/models/.<engine>-loaded-once`). Checking the main repo cache isn't enough, because IndicF5 downloads its vocoder separately on first load.
+- **Dev server reloads on every backend edit** — if Rahul is using the app at the time, a running job is interrupted (marked "Interrupted").
 - **HF token location**: `hf auth login` writes `~/.cache/huggingface/token`; workers get `HF_HOME=data/models/hf` for weights, so we pass `HF_TOKEN_PATH` explicitly.
 - **Uploads**: allowed extensions in `voices.ALLOWED_EXTENSIONS` (incl. aiff/aif — macOS's native format). FastAPI `Form(...)` rejects empty strings before our validators, so required text fields use `Form("")` and the service validates (gives a proper `code`).
 - **Test sessions go stale** after `runner.run_one()` (the job used other sessions) → `session.expire_all()`.

@@ -68,7 +68,7 @@ uv venv --python 3.11 .venvs/f5mlx && VIRTUAL_ENV=.venvs/f5mlx uv pip install f5
 # IndicF5 — Hindi specialist (~1.4 GB). Gated: accept the terms at
 # https://huggingface.co/ai4bharat/IndicF5, create a Read token, then:
 backend/.venv/bin/hf auth login
-uv venv --python 3.10 .venvs/indicf5 && VIRTUAL_ENV=.venvs/indicf5 uv pip install "git+https://github.com/ai4bharat/IndicF5.git" soundfile
+uv venv --python 3.10 .venvs/indicf5 && VIRTUAL_ENV=.venvs/indicf5 uv pip install "git+https://github.com/ai4bharat/IndicF5.git" soundfile torchcodec "transformers<4.50" "numpy<=1.26.4" "datasets<4"
 ```
 
 Both of these need a short reference clip (≤ 12–15 s) **and the exact words spoken in it**.
@@ -87,6 +87,7 @@ It speaks a few English, Hindi and Hinglish sentences with every installed engin
 | XTTS-v2 on the Apple GPU (default) | about 2× faster than real time |
 | XTTS-v2 on CPU | about 1.5× slower than real time |
 | F5-TTS MLX | 2.5–5× slower than real time |
+| IndicF5 (CPU only) | about 20× slower than real time |
 
 ### Tests
 
@@ -154,6 +155,9 @@ Everything is under `/api/v1`. Interactive docs are at http://127.0.0.1:8000/doc
 Which engines Vaani ships with depends on a listening test in Phase 1. **Vaani is for personal and family use only.** Do not use it commercially.
 
 ## Privacy and consent
+
+Vaani only answers requests addressed to `localhost`/`127.0.0.1`, and refuses uploads or deletions coming from other websites, so a page open in another tab can't reach your recordings.
+
 
 - Everything stays on this computer. Vaani makes no network calls except the one-time model downloads.
 - All recordings, voices and generated audio live in `data/`, which is excluded from git.

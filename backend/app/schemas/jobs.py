@@ -31,5 +31,6 @@ class EngineOut(BaseModel):
     loaded: bool
     device: str | None
     needs_transcript: bool
+    max_ref_seconds: float | None = None
     license: str
     default: bool

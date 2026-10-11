@@ -4,7 +4,6 @@ and per-engine conditioning (voiceprint) caching."""
 from __future__ import annotations
 
 import logging
-import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, BinaryIO
@@ -133,13 +132,9 @@ def create_voice(
     try:
         for i, u in enumerate(uploads):
             dst = orig_dir / f"{i:02d}_{storage.safe_filename(u.filename)}"
-            with dst.open("wb") as out:
-                shutil.copyfileobj(u.file, out, length=1024 * 1024)
-            size = dst.stat().st_size
+            size = copy_limited(u.file, dst, MAX_FILE_BYTES, u.filename)
             if size == 0:
                 raise Invalid(f"{u.filename} is empty.", code="empty_file")
-            if size > MAX_FILE_BYTES:
-                raise Invalid(f"{u.filename} is larger than 200 MB.", code="file_too_large")
             session.add(
                 VoiceSample(
                     voice_id=voice.id,
@@ -161,6 +156,22 @@ def create_voice(
     )
     session.refresh(voice)
     return voice, job
+
+
+def copy_limited(src: BinaryIO, dst: Path, limit: int, name: str) -> int:
+    """Copy in chunks and stop as soon as `limit` bytes is exceeded (never fill the disk)."""
+    size = 0
+    with dst.open("wb") as out:
+        while chunk := src.read(1024 * 1024):
+            size += len(chunk)
+            if size > limit:
+                out.close()
+                dst.unlink(missing_ok=True)
+                raise Invalid(
+                    f"{name} is larger than {limit // (1024 * 1024)} MB.", code="file_too_large"
+                )
+            out.write(chunk)
+    return size
 
 
 def update_voice(session: Session, voice_id: str, **fields: Any) -> Voice:
@@ -190,10 +201,14 @@ def delete_voice(session: Session, voice_id: str) -> DeleteReport:
     """Hard delete: rows (cascade) + every file for the voice and its generations."""
     voice = _get(session, voice_id)
     runner = get_runner()
-    active = session.scalars(
-        select(Job).where(Job.voice_id == voice_id, Job.status.in_(("queued", "running")))
-    ).first()
-    if active and runner.current_job == active.id:
+    active_ids = set(
+        session.scalars(
+            select(Job.id).where(Job.voice_id == voice_id, Job.status.in_(("queued", "running")))
+        )
+    )
+    # Only a job that is executing right now can recreate files; queued ones are deleted
+    # below, and the runner skips job ids whose rows are gone.
+    if runner.current_job in active_ids:
         raise Invalid(
             "This voice is being processed right now — try again in a moment.", code="busy"
         )
@@ -240,6 +255,12 @@ def _reference_segments(voice: Voice, budget: float) -> list[Path]:
             continue
         for seg in s.segments or []:
             scored.append((score, seg["duration"], storage.resolve(seg["path"])))
+    if not scored:  # every clip rated poor: use them anyway rather than fail outright
+        scored = [
+            ((s.quality or {}).get("score", 0), seg["duration"], storage.resolve(seg["path"]))
+            for s in voice.samples
+            for seg in s.segments or []
+        ]
     scored.sort(key=lambda t: (-t[0], -t[1]))
     picked, total = [], 0.0
     for _score, dur, path in scored:
@@ -248,6 +269,14 @@ def _reference_segments(voice: Voice, budget: float) -> list[Path]:
         picked.append(path)
         total += dur
     return picked
+
+
+def transcript_reference_or_none(session: Session, voice: Voice, max_seconds: float):
+    voice = _get(session, voice.id)
+    try:
+        return _transcript_reference(voice, max_seconds)
+    except EngineError:
+        return None
 
 
 def _transcript_reference(voice: Voice, max_seconds: float) -> tuple[Path, str]:

@@ -50,9 +50,12 @@ export function GeneratePage() {
   useEffect(() => {
     if (!voiceId && ready.length) setVoiceId(ready[0].id);
   }, [ready, voiceId]);
+  // Depend on the id, not the object: a refetch gives a new object and would reset the
+  // language the user picked (review finding).
+  const voiceLanguage = voice?.language;
   useEffect(() => {
-    if (voice) setLanguage(voice.language);
-  }, [voice]);
+    if (voiceLanguage) setLanguage(voiceLanguage);
+  }, [voice?.id, voiceLanguage]);
   useEffect(() => {
     if (engine || !engines.data) return;
     setEngine(engines.data.find((e) => e.default)?.name ?? engines.data[0]?.name ?? null);
@@ -89,6 +92,12 @@ export function GeneratePage() {
   const ev = state.latest;
 
   const engineInfo = engines.data?.find((e) => e.name === engine);
+  // If the chosen engine can't speak the chosen language, switch to one that can.
+  useEffect(() => {
+    if (!engines.data || !engineInfo || engineInfo.languages.includes(language)) return;
+    const fallback = engines.data.find((e) => e.available && e.languages.includes(language));
+    if (fallback) setEngine(fallback.name);
+  }, [language, engineInfo, engines.data]);
   const colors = voiceColors(voice?.id);
   const chars = script.trim().length;
 
@@ -212,7 +221,9 @@ export function GeneratePage() {
             </div>
             {engineInfo && !engineInfo.available && <p className="text-xs text-okay">{engineInfo.reason}</p>}
             {engineInfo?.needs_transcript && engineInfo.available && (
-              <p className="text-xs text-muted">{engineInfo.label} needs a clip of 15 seconds or less, with its transcript, on this voice.</p>
+              <p className="text-xs text-muted">
+                {engineInfo.label} needs one clip of {engineInfo.max_ref_seconds ?? 12} seconds or less with its exact transcript on this voice. Add the transcript when you create the voice.
+              </p>
             )}
 
             <div>

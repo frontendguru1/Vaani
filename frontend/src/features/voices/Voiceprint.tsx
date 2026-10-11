@@ -4,7 +4,9 @@ import { spring } from "../../motion/tokens";
 
 /**
  * A radial "voiceprint": bars around a circle that grow from noise into a settled shape as
- * the voice is processed (progress is real), then pulse once when it's ready.
+ * the voice is processed (progress is real). While work is happening — even during a long
+ * step like loading the model — a ripple keeps travelling round the ring and the whole print
+ * turns slowly, so it never looks frozen. On ready it stops, settles and pulses once.
  */
 export function Voiceprint({ hue, progress, ready, seed = "vaani" }: { hue: number; progress: number; ready: boolean; seed?: string }) {
   const reduced = useReducedMotion();
@@ -24,6 +26,8 @@ export function Voiceprint({ hue, progress, ready, seed = "vaani" }: { hue: numb
   const maxLen = 48;
   const color = `oklch(0.75 0.16 ${hue})`;
   const color2 = `oklch(0.75 0.14 ${(hue + 60) % 360})`;
+  const working = !ready && !reduced;
+  const ripple = 1.6; // seconds for one lap of the ripple
 
   return (
     <motion.svg
@@ -40,29 +44,56 @@ export function Voiceprint({ hue, progress, ready, seed = "vaani" }: { hue: numb
           <stop offset="1" stopColor={color2} />
         </linearGradient>
       </defs>
-      <circle cx={c} cy={c} r={inner - 8} fill={`oklch(0.72 0.17 ${hue} / ${0.1 + progress * 0.25})`} />
-      {shape.map((s, i) => {
-        const a = (i / N) * Math.PI * 2 - Math.PI / 2;
-        // Before settling, bars jitter; they converge on the voice's shape as progress grows.
-        const len = maxLen * (ready ? s : s * (0.15 + 0.85 * progress));
-        return (
-          <motion.line
-            key={i}
-            x1={c + Math.cos(a) * inner}
-            y1={c + Math.sin(a) * inner}
-            stroke="url(#vp-grad)"
-            strokeWidth={3}
-            strokeLinecap="round"
-            initial={false}
-            animate={{
-              x2: c + Math.cos(a) * (inner + len),
-              y2: c + Math.sin(a) * (inner + len),
-              opacity: 0.35 + 0.65 * (ready ? 1 : progress),
-            }}
-            transition={{ ...spring.gentle, delay: reduced ? 0 : (i % 8) * 0.01 }}
-          />
-        );
-      })}
+      {/* core breathes while working */}
+      <motion.circle
+        cx={c}
+        cy={c}
+        r={inner - 8}
+        fill={`oklch(0.72 0.17 ${hue} / ${0.12 + progress * 0.25})`}
+        style={{ transformOrigin: "center", transformBox: "fill-box" }}
+        animate={working ? { scale: [1, 1.12, 1], opacity: [0.8, 1, 0.8] } : { scale: 1, opacity: 1 }}
+        transition={working ? { duration: 1.8, repeat: Infinity, ease: "easeInOut" } : spring.gentle}
+      />
+      <motion.g
+        style={{ transformOrigin: `${c}px ${c}px` }}
+        animate={working ? { rotate: 360 } : { rotate: 0 }}
+        transition={working ? { duration: 24, repeat: Infinity, ease: "linear" } : spring.gentle}
+      >
+        {shape.map((s, i) => {
+          const a = (i / N) * Math.PI * 2 - Math.PI / 2;
+          const len = maxLen * (ready ? s : s * (0.25 + 0.75 * progress));
+          const x1 = c + Math.cos(a) * inner;
+          const y1 = c + Math.sin(a) * inner;
+          const end = (l: number) => ({ x2: c + Math.cos(a) * (inner + l), y2: c + Math.sin(a) * (inner + l) });
+          return (
+            <motion.line
+              key={i}
+              x1={x1}
+              y1={y1}
+              stroke="url(#vp-grad)"
+              strokeWidth={3}
+              strokeLinecap="round"
+              initial={false}
+              animate={
+                working
+                  ? {
+                      // Ripple: each bar swells in turn, so a wave travels round the ring.
+                      ...Object.fromEntries(
+                        Object.entries(end(len)).map(([k, v]) => [k, [v, (end(len * 1.35 + 6) as Record<string, number>)[k], v]]),
+                      ),
+                      opacity: [0.45 + 0.4 * progress, 1, 0.45 + 0.4 * progress],
+                    }
+                  : { ...end(len), opacity: 1 }
+              }
+              transition={
+                working
+                  ? { duration: ripple, repeat: Infinity, ease: "easeInOut", delay: (i / N) * ripple }
+                  : { ...spring.gentle, delay: reduced ? 0 : (i % 8) * 0.01 }
+              }
+            />
+          );
+        })}
+      </motion.g>
     </motion.svg>
   );
 }

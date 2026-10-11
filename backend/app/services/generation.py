@@ -75,6 +75,19 @@ def create_generation(
     if language not in eng.supported_languages:
         raise Invalid(f"{eng.label} doesn't support '{language}'.", code="language_unsupported")
 
+    if eng.needs_transcript:
+        # Fail now with a clear message instead of after the job starts.
+        from app.services.voices import transcript_reference_or_none
+
+        limit = getattr(eng, "max_ref_seconds", 12.0)
+        if transcript_reference_or_none(session, voice, limit) is None:
+            raise Invalid(
+                f"{eng.label} needs one clip of {limit:.0f} seconds or less with its exact "
+                f"transcript, and {voice.name} doesn't have one yet. Use XTTS-v2, or create a "
+                "voice that includes a short clip with its transcript.",
+                code="needs_transcript",
+            )
+
     clean = _clean_settings(settings)
     cfg = get_settings()
     chunks = chunk_text(

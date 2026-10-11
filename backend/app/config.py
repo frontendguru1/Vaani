@@ -29,6 +29,16 @@ class Settings(BaseSettings):
     features: set[str] = set()
     host: str = "127.0.0.1"
     port: int = 8000
+    # Security: only these Host headers are served (blocks DNS rebinding), and browsers may
+    # only send state-changing requests from these origins (blocks cross-site form posts).
+    allowed_hosts: list[str] = ["localhost", "127.0.0.1", "[::1]"]
+    allowed_origins: list[str] = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ]
+    max_upload_mb: int = 1024  # whole request; each file is also capped at 200 MB
 
     @field_validator("data_dir")
     @classmethod

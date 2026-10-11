@@ -34,6 +34,26 @@ export function useJobEvents(jobId: string | null, onEvent?: (e: JobEvent) => vo
       "voiceprint", "chunk_started", "chunk_done", "generation_done", "succeeded", "failed",
     ];
     types.forEach((t) => es.addEventListener(t, handle as EventListener));
+    // If the stream dies for good (e.g. the job was deleted → 404), EventSource stops
+    // retrying silently. Ask once for the job's state so the UI never hangs on "Generating…".
+    es.onerror = () => {
+      if (es.readyState !== EventSource.CLOSED) return;
+      fetch(`/api/v1/jobs/${jobId}`)
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+        .then((job: JobEvent) => {
+          if (job.status === "queued" || job.status === "running") return; // still alive
+          const failed = job.status !== "succeeded";
+          const ev = { ...job, type: failed ? "failed" : "succeeded", status: failed ? "failed" : "succeeded", data: {} } as JobEvent;
+          if (failed && !ev.error) ev.error = "Lost contact with this job.";
+          handler.current?.(ev);
+          setState({ latest: ev, done: true, failed });
+        })
+        .catch(() => {
+          const ev = { job_id: jobId, type: "failed", status: "failed", error: "This job no longer exists.", data: {} } as unknown as JobEvent;
+          handler.current?.(ev);
+          setState({ latest: ev, done: true, failed: true });
+        });
+    };
     return () => es.close();
   }, [jobId]);
 

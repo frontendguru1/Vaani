@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import queue
 import subprocess
 import tempfile
 import threading
@@ -34,13 +35,17 @@ def hf_token_path() -> Path | None:
 class SubprocessEngine(TTSEngine):
     venv: ClassVar[str]
     worker_script: ClassVar[str]
-    hf_repo: ClassVar[str | None] = None  # model repo; once cached, workers run offline
     max_ref_seconds: ClassVar[float] = 12.0
     needs_transcript = True
+    # A wedged worker (e.g. a GPU hang) must not freeze the single job queue forever.
+    load_timeout: ClassVar[float] = 1200.0  # first load may download weights
+    call_timeout: ClassVar[float] = 300.0
 
     def __init__(self) -> None:
         super().__init__()
         self._proc: subprocess.Popen[str] | None = None
+        self._lines: queue.Queue[str] = queue.Queue()
+        self._logf = None
         self._lock = threading.Lock()
         self._version = "unknown"
 
@@ -57,13 +62,15 @@ class SubprocessEngine(TTSEngine):
     def log_path(self) -> Path:
         return get_settings().data_dir / "logs" / f"{self.name}.log"
 
+    @property
+    def ready_marker(self) -> Path:
+        return get_settings().models_dir / f".{self.name}-loaded-once"
+
     def model_cached(self) -> bool:
-        if not self.hf_repo:
-            return False
-        repo_dir = (
-            get_settings().models_dir / "hf" / "hub" / f"models--{self.hf_repo.replace('/', '--')}"
-        )
-        return any(repo_dir.glob("snapshots/*/*"))
+        """True once the worker has loaded successfully, i.e. every file it needs (weights,
+        vocoder, vocab, remote code) is on disk. Checking only the main repo isn't enough:
+        IndicF5 fetches its vocoder separately on first load."""
+        return self.ready_marker.exists()
 
     def availability(self) -> Availability:
         if not self.python.is_file():
@@ -96,12 +103,25 @@ class SubprocessEngine(TTSEngine):
             env["HF_TOKEN_PATH"] = str(token)
         return env
 
-    def _call(self, req: dict[str, Any]) -> dict[str, Any]:
-        assert self._proc and self._proc.stdin and self._proc.stdout
+    def _pump(self, stream) -> None:  # noqa: ANN001
+        """Reader thread: lets _call wait with a timeout instead of blocking on readline."""
+        for line in stream:
+            self._lines.put(line)
+        self._lines.put("")  # EOF
+
+    def _call(self, req: dict[str, Any], timeout: float | None = None) -> dict[str, Any]:
+        assert self._proc and self._proc.stdin
         self._proc.stdin.write(json.dumps(req) + "\n")
         self._proc.stdin.flush()
+        wait = timeout or self.call_timeout
         while True:
-            line = self._proc.stdout.readline()
+            try:
+                line = self._lines.get(timeout=wait)
+            except queue.Empty:
+                self._kill()
+                raise EngineError(
+                    f"{self.label} didn't respond within {wait:.0f}s and was stopped."
+                ) from None
             if not line:
                 raise EngineError(
                     f"{self.label} worker exited. Last log lines:\n{self._log_tail()}"
@@ -132,7 +152,8 @@ class SubprocessEngine(TTSEngine):
             if not avail.ok:
                 raise EngineError(f"{self.label} unavailable: {avail.reason}")
             self.log_path.parent.mkdir(parents=True, exist_ok=True)
-            logf = self.log_path.open("a")
+            self._logf = logf = self.log_path.open("a")
+            self._lines = queue.Queue()
             self._proc = subprocess.Popen(
                 [str(self.python), str(self.worker_path)],
                 stdin=subprocess.PIPE,
@@ -142,11 +163,16 @@ class SubprocessEngine(TTSEngine):
                 env=self.worker_env(),
                 cwd=str(WORKERS_DIR),
             )
+            threading.Thread(target=self._pump, args=(self._proc.stdout,), daemon=True).start()
             try:
-                resp = self._call({"cmd": "load", "options": self.load_options()})
+                resp = self._call(
+                    {"cmd": "load", "options": self.load_options()}, timeout=self.load_timeout
+                )
             except Exception:
                 self._kill()
                 raise
+            self.ready_marker.parent.mkdir(parents=True, exist_ok=True)
+            self.ready_marker.touch()
             self.device = resp.get("device", "unknown")
             self._version = resp.get("version", "unknown")
             log.info("%s worker loaded on %s", self.label, str(self.device).upper())
@@ -159,12 +185,15 @@ class SubprocessEngine(TTSEngine):
             self._proc.kill()
             self._proc.wait(timeout=5)
         self._proc = None
+        if self._logf:
+            self._logf.close()
+            self._logf = None
 
     def unload(self) -> None:
         with self._lock:
             if self.is_loaded:
                 try:
-                    self._call({"cmd": "shutdown"})
+                    self._call({"cmd": "shutdown"}, timeout=10)
                     self._proc.wait(timeout=10)  # type: ignore[union-attr]
                 except Exception:  # noqa: BLE001
                     pass
