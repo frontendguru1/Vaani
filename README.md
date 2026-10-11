@@ -6,11 +6,35 @@ A personal voice-cloning studio that runs **entirely on your own Mac**. Give it 
 
 **Status:** the core app works. Create a voice from uploads or the microphone, generate English, Hindi or Hinglish speech with live progress, then play, download and manage the results. The extras so far are auto-transcription, a pronunciation dictionary and pause markers.
 
-![Generating speech: the current sentence is highlighted as it plays](docs/screenshot.png)
+<p align="center">
+  <img src="docs/demo-generate.gif" alt="Typing a script, generating it in a cloned voice with a live progress orb and sentence highlighting, then a 'sounds very close' score" width="820">
+</p>
 
-| Voice library | Creating a voice |
-|---|---|
-| ![Voices](docs/screenshot-voices.png) | ![Creating a voice](docs/screenshot-create-voice.png) |
+### Make a voice from a few clips
+
+Drop in 15–60 seconds of someone speaking (with their permission). Vaani cleans the audio, rates its quality, transcribes it, checks that every clip is the same person, and builds a voiceprint.
+
+<p align="center">
+  <img src="docs/demo-create.gif" alt="Creating a voice: dropping audio files, per-clip quality scores, an animated voiceprint forming, then 'Tara is ready'" width="820">
+</p>
+
+### Conversations with several voices
+
+Start lines with a voice's name, `[Papa]: …` / `[Meera]: …`, and get one recording with everyone speaking. The orb takes on the colour of whoever is talking.
+
+<p align="center">
+  <img src="docs/demo-dialogue.gif" alt="A three-line dialogue between two built-in voices; the orb changes colour for each speaker" width="820">
+</p>
+
+### 12 voices ready to use
+
+Built-in studio voices, 6 female and 6 male, so you can try Vaani before recording anyone.
+
+<p align="center">
+  <img src="docs/demo-library.gif" alt="The voice library with built-in voices, filtering by female and male, and playing a sample" width="820">
+</p>
+
+<sub>Recorded on an M1-class MacBook. Waiting time while the model works is sped up 2.5–3.5× in these animations; typing and playback are real-time. The voices shown are a synthetic demo voice and the built-in studio voices.</sub>
 
 ## Features
 
