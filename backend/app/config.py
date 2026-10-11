@@ -15,6 +15,8 @@ class Settings(BaseSettings):
         env_file=REPO_ROOT / ".env",
         env_prefix="VAANI_",
         extra="ignore",
+        # A copied .env.example has blank lines like `VAANI_XTTS_DEVICE=`; treat them as unset.
+        env_ignore_empty=True,
     )
 
     data_dir: Path = Path("data")
@@ -24,6 +26,8 @@ class Settings(BaseSettings):
     default_engine: str = "xtts"
     # Per-engine device override (XTTS on MPS has known hangs; benchmark decides).
     xtts_device: Literal["auto", "mps", "cpu"] | None = None
+    # F5-TTS MLX weights: None = full precision, 4 or 8 = quantized (smaller, slightly worse).
+    f5mlx_quant: Literal[4, 8] | None = None
     pause_sentence_ms: int = 350
     pause_paragraph_ms: int = 800
     features: set[str] = set()

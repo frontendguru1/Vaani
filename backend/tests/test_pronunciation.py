@@ -46,9 +46,9 @@ def test_devanagari_word_boundaries_respect_vowel_signs():
 
 
 def test_language_scoping():
-    es = [E("Ji", "जी", lang="hi"), E("GIF", "jif", lang="en"), E("Rahul", "Raa-hul")]
-    assert apply("GIF Ji Rahul", "en", es) == "jif Ji Raa-hul"
-    assert apply("GIF Ji Rahul", "hi", es) == "GIF जी Raa-hul"
+    es = [E("Ji", "जी", lang="hi"), E("GIF", "jif", lang="en"), E("Meera", "Mee-ra")]
+    assert apply("GIF Ji Meera", "en", es) == "jif Ji Mee-ra"
+    assert apply("GIF Ji Meera", "hi", es) == "GIF जी Mee-ra"
 
 
 def test_counts_and_multiword_across_whitespace():

@@ -1,6 +1,6 @@
-import os
 from typing import Any
 
+from app.config import get_settings
 from app.engines.registry import register
 from app.engines.subprocess_engine import SubprocessEngine
 
@@ -19,5 +19,4 @@ class F5MLXEngine(SubprocessEngine):
     max_ref_seconds = 12.0
 
     def load_options(self) -> dict[str, Any]:
-        q = os.environ.get("VAANI_F5MLX_QUANT", "").strip()  # "", "4" or "8"
-        return {"quantization_bits": int(q) if q else None}
+        return {"quantization_bits": get_settings().f5mlx_quant}

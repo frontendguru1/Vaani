@@ -1,8 +1,10 @@
 # Vaani · वाणी
 
-A personal voice-cloning studio that runs **entirely on your Mac**. Give it a few clean clips of someone's voice (with their permission). Then type a script in English, Hindi or a mix of both, and Vaani reads it back in that voice. No cloud services, no accounts, and it works offline once the models are downloaded.
+A personal voice-cloning studio that runs **entirely on your own Mac**. Give it a few clean clips of someone's voice (with their permission). Then type a script in English, Hindi or a mix of both, and Vaani reads it back in that voice.
 
-> **Status:** the core app works. Create a voice from uploads or the microphone, generate English, Hindi or Hinglish speech in it with live progress, play and download the result, and browse or delete your history. Extras (Phase 4) come next.
+> **Local only.** Vaani is not a website or a cloud service, and there is nothing to deploy. It runs on your computer, and your recordings never leave it. You need a Mac with Apple Silicon (see [Prerequisites](#prerequisites)). After the first-time model downloads it works with the internet switched off.
+
+**Status:** the core app works. Create a voice from uploads or the microphone, generate English, Hindi or Hinglish speech with live progress, then play, download and manage the results. The extras so far are auto-transcription, a pronunciation dictionary and pause markers.
 
 ![Generating speech: the current sentence is highlighted as it plays](docs/screenshot.png)
 
@@ -27,31 +29,54 @@ A personal voice-cloning studio that runs **entirely on your Mac**. Give it a fe
 
 **Later:** speaking-style variants, multi-voice dialogue, batch generation, subtitle export, and side-by-side engine comparison.
 
-## Requirements
+## Prerequisites
 
-- macOS on Apple Silicon (built and tested on an M1 Pro, 16 GB)
-- [Homebrew](https://brew.sh)
-- About **10 GB** of free disk space once the voice models are installed (XTTS-v2 alone is 2.1 GB and downloads automatically the first time a voice is created)
+### Hardware and system
+
+| | Needed | Notes |
+|---|---|---|
+| Computer | **Mac with Apple Silicon** (M1, M2, M3, M4 or newer) | The voice engines and transcription use the Apple GPU (Metal / MLX). Intel Macs, Windows and Linux are not supported. |
+| macOS | **13.5 Ventura or newer** | Required by MLX. Developed on macOS 26. |
+| Memory | **16 GB recommended** | XTTS and Whisper together use about 5 GB while working. 8 GB may work but is untested. |
+| Free disk | **About 8 GB** for the core app | Python packages ~1.2 GB, XTTS-v2 model 2.1 GB, Whisper model 1.6 GB, web packages ~0.3 GB, plus your recordings. The optional extra engines add ~5 GB. |
+| Internet | Only for installing and the **first** run | Models download once into `data/models/`. After that everything works offline. |
+| Browser | A current Chrome, Safari, Firefox or Edge | Allow microphone access if you want to record in the browser. |
+
+### Software
+
+| Tool | Version | Install |
+|---|---|---|
+| [Homebrew](https://brew.sh) | any | see brew.sh |
+| git | any | `xcode-select --install` (if `git` is missing) |
+| ffmpeg | 4–9 | `brew install ffmpeg` |
+| uv (Python manager) | 0.5+ | `brew install uv`. It installs **Python 3.11** for you automatically. |
+| Node.js | **22** (20.19+ works) | `brew install node@22` |
+| pnpm | 9+ | `brew install pnpm` |
+
+All in one go:
 
 ```bash
-brew install ffmpeg uv node@22
+brew install ffmpeg uv node@22 pnpm
 ```
 
-Node 22 is installed alongside any existing Node. Either put it on your PATH for this project or prefix the commands:
+`node@22` is installed alongside any Node you already have. Put it first on your PATH for this project (or add the line to `~/.zshrc`):
 
 ```bash
 export PATH=/opt/homebrew/opt/node@22/bin:$PATH
+node --version   # should print v22.x
 ```
+
+Accounts: **none** are needed for the core app. A free Hugging Face account is only needed for the optional IndicF5 engine.
 
 ## Setup and run
 
 ```bash
-git clone git@github.com:frontendguru1/Vaani.git && cd Vaani
-cp .env.example .env            # optional; defaults work
+git clone https://github.com/frontendguru1/Vaani.git && cd Vaani
+cp .env.example .env            # optional; every setting has a working default
 
 # Backend — terminal 1
 cd backend
-uv sync
+uv sync                         # first time: downloads Python 3.11 + packages (~1.2 GB)
 uv run vaani-dev                # http://127.0.0.1:8000  (creates/migrates the database)
 
 # Frontend — terminal 2
@@ -59,6 +84,16 @@ cd frontend
 pnpm install
 pnpm dev                        # open http://localhost:5173
 ```
+
+If you plan to commit changes, turn on the repo's safety check once per clone. It blocks any commit that contains a token, a private key, your recordings or a local `.env`:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+**First run:** creating your first voice downloads the XTTS-v2 voice model (2.1 GB) and the Whisper transcription model (1.6 GB), so it takes a few minutes. After that, voices are created in seconds and models stay loaded while the app runs.
+
+To stop Vaani, press `Ctrl+C` in both terminals. Everything you made stays in `data/`.
 
 ### Optional extra voice engines
 
@@ -85,7 +120,7 @@ uv run python scripts/benchmark_engines.py --ref ~/clips/me.wav --ref-text "the 
 
 It speaks a few English, Hindi and Hinglish sentences with every installed engine. It saves the audio to `data/benchmarks/<date-time>/` so you can listen, and prints how long each engine took.
 
-| Measured on the M1 Pro (synthetic reference voice) | Speed |
+| Measured on an M1-class Mac (synthetic reference voice) | Speed |
 |---|---|
 | XTTS-v2 on the Apple GPU (default) | about 2× faster than real time |
 | XTTS-v2 on CPU | about 1.5× slower than real time |
@@ -111,16 +146,21 @@ uv run vaani reset-dev-data     # wipe all voices, generations and the database 
 
 ## Configuration
 
-All settings go in `.env` at the repo root. See `.env.example` for the full list.
+All settings go in `.env` at the repo root. `.env.example` lists every option with comments, and none are required.
 
 | Setting | Default | Meaning |
 |---|---|---|
 | `VAANI_DATA_DIR` | `data` | Where voices, generations, the database and models are stored |
 | `DATABASE_URL` | SQLite in the data dir | Point this at Postgres later if wanted |
-| `VAANI_DEVICE` | `auto` | `auto` tries the Apple GPU (MPS) and falls back to CPU |
+| `VAANI_DEVICE` | `auto` | `auto` uses the Apple GPU (MPS) and falls back to CPU |
+| `VAANI_XTTS_DEVICE` | follows `VAANI_DEVICE` | Force XTTS onto `cpu` if GPU output ever sounds wrong |
 | `VAANI_DEFAULT_ENGINE` | `xtts` | Voice engine used when none is chosen |
+| `VAANI_F5MLX_QUANT` | empty (full) | `8` or `4` for smaller, slightly lower-quality F5 weights |
+| `VAANI_TRANSCRIBE_MODEL` | `mlx-community/whisper-large-v3-turbo` | Whisper model; `mlx-community/whisper-small-mlx` is 0.48 GB but weaker at Hindi |
+| `VAANI_TRANSCRIBE_ON_CREATE` | `true` | Transcribe clips automatically when a voice is created |
 | `VAANI_PAUSE_SENTENCE_MS` / `_PARAGRAPH_MS` | 350 / 800 | Pauses between generated sentences and paragraphs |
-| `VAANI_FEATURES` | empty | Comma-separated experimental features |
+| `VAANI_MAX_UPLOAD_MB` | 1024 | Largest upload per request (each file is also capped at 200 MB) |
+| `VAANI_HOST` / `VAANI_PORT` | 127.0.0.1 / 8000 | Where the backend listens. Keep it on this machine. |
 
 ## Project structure
 
@@ -162,17 +202,17 @@ Which engines Vaani ships with depends on a listening test in Phase 1. **Vaani i
 
 ## Privacy and consent
 
-Vaani only answers requests addressed to `localhost`/`127.0.0.1`, and refuses uploads or deletions coming from other websites, so a page open in another tab can't reach your recordings.
-
-
 - Everything stays on this computer. Vaani makes no network calls except the one-time model downloads.
 - All recordings, voices and generated audio live in `data/`, which is excluded from git.
 - Only clone a voice when that person has agreed, or when it's your own. Vaani asks for a consent note for each voice and refuses to generate without one.
-- Deleting a voice permanently removes its recordings, cached voice data, generated audio and database records.
+- Deleting a voice permanently removes its recordings, cached voice data, generated audio and database records. `uv run vaani check` confirms nothing was left behind.
+- Vaani only answers requests addressed to `localhost`/`127.0.0.1`, and refuses uploads or deletions coming from other websites, so a page open in another browser tab can't reach your recordings.
 
 ## Troubleshooting
 
-- **The page says "Can't reach the backend":** start it with `cd backend && uv run vaani-dev`.
+- **"Can't reach the backend" / "Backend offline":** start it with `cd backend && uv run vaani-dev`.
+- **`uv sync` fails building a package:** make sure you're on Apple Silicon (`uname -m` prints `arm64`) and that the Xcode command-line tools are installed (`xcode-select --install`).
+- **Microphone recording doesn't start:** allow the microphone for `localhost` in your browser's site settings.
 - **`pnpm dev` fails with a Node version error:** you're on an older Node. Use the Node 22 PATH line above.
 - **System card shows ffmpeg missing:** run `brew install ffmpeg`.
 - **The first voice takes a minute:** XTTS-v2 is loading, or downloading on the very first run. Later voices and generations reuse the loaded model.

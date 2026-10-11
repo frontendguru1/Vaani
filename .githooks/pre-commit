@@ -1,0 +1,22 @@
+#!/bin/sh
+# Blocks commits that contain anything that looks like a credential.
+# Enabled per clone with:  git config core.hooksPath .githooks
+# (Bypass only if you are certain it's a false positive: git commit --no-verify)
+
+PATTERN='hf_[A-Za-z0-9]{30,}|sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|AIza[0-9A-Za-z_-]{35}'
+
+hits=$(git diff --cached -U0 --no-color | grep -E '^\+' | grep -v '^+++' | grep -E -n "$PATTERN")
+if [ -n "$hits" ]; then
+  echo "✋ Commit blocked: staged changes look like they contain a token or private key:" >&2
+  echo "$hits" | cut -c1-120 >&2
+  exit 1
+fi
+
+# Never commit private data or local env files, even if .gitignore is bypassed with -f.
+bad=$(git diff --cached --name-only | grep -E '^data/|(^|/)\.env$|(^|/)\.env\.[^e]|\.db$|vaani-claude-code-prompt\.md$')
+if [ -n "$bad" ]; then
+  echo "✋ Commit blocked: these files must stay local:" >&2
+  echo "$bad" >&2
+  exit 1
+fi
+exit 0

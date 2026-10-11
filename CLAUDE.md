@@ -1,14 +1,14 @@
 # CLAUDE.md — Vaani (वाणी)
 
-Vaani is a personal, **fully local** voice-cloning app: upload/record clips of a person → clean + quality-check → save a named Voice → type an English/Hindi (or Hinglish) script → get audio in that voice. Runs only on Rahul's MacBook Pro (M1 Pro, 16 GB, macOS 26). **No cloud APIs, no telemetry, works offline after models are downloaded.** Audio of real people (including a child) lives in `data/`, which is gitignored. Every Voice needs a **consent note**; generation is blocked without one. Personal/family use only — several model weights are non-commercial. The full original brief is `vaani-claude-code-prompt.md` (local only, gitignored — not in the repo).
+Vaani is a personal, **fully local** voice-cloning app: upload/record clips of a person → clean + quality-check → save a named Voice → type an English/Hindi (or Hinglish) script → get audio in that voice. Runs **only on the local machine**: a Mac with Apple Silicon (M1 or newer, macOS 13+, 16 GB RAM recommended), with nothing deployed anywhere. Prerequisites are listed in README → "Prerequisites". **No cloud APIs, no telemetry, works offline after the models are downloaded once.** Audio of real people (including a child) lives in `data/`, which is gitignored. Every Voice needs a **consent note**; generation is blocked without one. Personal/family use only — several model weights are non-commercial. The full original brief is `vaani-claude-code-prompt.md` (local only, gitignored — not in the repo).
 
 ## Current status
 
 - **Phase 0 — Scaffolding: DONE (2026-10-11).**
-- **Phase 1 — Quality spike: BUILT, listening decision PENDING.** `backend/scripts/benchmark_engines.py` works for all three engines. Only a *synthetic* reference (macOS "Rishi" voice) has been benchmarked so far — it proves the pipeline, not cloning quality. Rahul still needs to (a) supply a real 15–60 s clip + transcript and listen, (b) finish the IndicF5 Hugging Face token login. XTTS-v2 is the working default until then.
+- **Phase 1 — Quality spike: BUILT, listening decision PENDING.** `backend/scripts/benchmark_engines.py` works for all three engines. Only a *synthetic* reference (macOS "Rishi" voice) has been benchmarked so far — it proves the pipeline, not cloning quality. The owner still needs to (a) supply a real 15–60 s clip + transcript and listen, (b) finish the IndicF5 Hugging Face token login. XTTS-v2 is the working default until then.
 - **Phase 2 — Backend core: DONE (2026-10-11).** Voices (upload → clean → quality → voiceprint as a job), library CRUD + hard delete, engine registry + 3 engines, generation with chunking + SSE progress + stitching + MP3, history/regenerate/delete, consistency check. 69 tests.
 - **Phase 3 — Frontend: DONE (2026-10-11).** Voices (bento library, create dialog with drop zone, mic recorder, per-file quality cards, SSE-driven processing stepper + voiceprint + flourish, rename, two-step delete), Generate (voice/engine/language/speed, script editor with live sentence highlight, progress orb, result player with playback-synced highlight, WAV/MP3), History (play, regenerate, delete). Verified with Playwright (desktop, 390px, reduced motion). 15 frontend tests.
-- **Phase 4 — in progress.** Done: **auto-transcription** (mlx-whisper large-v3-turbo; Transcribing step on voice creation, Clips dialog to play / read / correct phrases, one-click transcribe from Generate when F5/IndicF5 is picked). Done: **pronunciation dictionary** (Pronunciation page with Try-it, chips on Generate); **pause markers** (`[pause 1s]` etc., chips in the editor, insert buttons). Rahul picks the next nice-to-have. Pending: real-voice listening test.
+- **Phase 4 — in progress.** Done: **auto-transcription** (mlx-whisper large-v3-turbo; Transcribing step on voice creation, Clips dialog to play / read / correct phrases, one-click transcribe from Generate when F5/IndicF5 is picked). Done: **pronunciation dictionary** (Pronunciation page with Try-it, chips on Generate); **pause markers** (`[pause 1s]` etc., chips in the editor, insert buttons). The owner picks the next nice-to-have. Pending: real-voice listening test.
 - Known issues: F5-MLX and IndicF5 outputs come out shorter than XTTS's for the same sentence (possible clipping), and IndicF5 is ~20× slower than real time on CPU. Whisper's Hindi has small spelling slips (e.g. परिक्षन for परीक्षण), so check transcripts in the Clips dialog before relying on F5/IndicF5.
 - **Security review done 2026-10-11** (see "Security model" below); all confirmed findings fixed with tests.
 
@@ -128,24 +128,25 @@ Single local user, no login. The threat is *other websites in the same browser* 
 - **2026-10-11** ULIDs for ids (sortable, URL-safe), stored as `String(26)`.
 - **2026-10-11** Fonts self-hosted via @fontsource for the offline requirement.
 - **2026-10-11** Radix and WaveSurfer deferred to Phase 3 (added when a component needs them; no speculative deps).
-- **2026-10-11** Git identity for this repo set locally to Rahul / rahul.dsg@gmail.com (the global identity is a work email).
-- **2026-10-11** Project brief removed from the public repo at Rahul's request (rewrote the single commit, force-pushed). It stays local + gitignored.
+- **2026-10-11** This repo uses a repo-local git identity (`git config user.name/user.email`), separate from the machine's global one.
+- **2026-10-11** Project brief removed from the public repo at the owner's request (rewrote the single commit, force-pushed). It stays local + gitignored.
 - **2026-10-11** One venv per conflicting engine + worker processes, rather than one venv with pinned compromises (IndicF5 needs transformers<4.50, coqui needs >=4.57).
 - **2026-10-11** **XTTS defaults to MPS.** Benchmark (synthetic ref): CPU RTF ≈ 1.45, MPS RTF ≈ 0.5 warm (first sentence ~1.4 = warm-up). No hang with coqui-tts 0.27.5 + torch 2.14; MPS output matched CPU on pitch (≈115 Hz = reference) and spectral flatness. `VAANI_XTTS_DEVICE=cpu` forces CPU.
-- **2026-10-11** F5-MLX: works after a compat shim (see Gotchas) but RTF 2.5–5.5 on M1 Pro (slower than XTTS on MPS) and outputs look short. Not chosen as default.
+- **2026-10-11** F5-MLX: works after a compat shim (see Gotchas) but RTF 2.5–5.5 on an M1-class Mac (slower than XTTS on MPS) and outputs look short. Not chosen as default.
 - **2026-10-11** Quality checker is pure numpy + librosa.yin (no ML VAD): energy VAD with 3rd-percentile noise floor; SNR reported as `null` when there are no pauses to measure against; pitch-spread IQR > 6.5 semitones → "maybe multiple speakers" (heuristic, says so).
 - **2026-10-11** Preprocessing uses only ffmpeg filters (highpass, optional `afftdn` denoise, silenceremove ×2 with areverse, `loudnorm` −20 LUFS) — no DeepFilterNet/Demucs download needed.
-- **2026-10-11** **Engine choice still awaiting Rahul's listening test on a real clip.**
+- **2026-10-11** **Engine choice still awaiting the owner's listening test on a real clip.**
 - **2026-10-11** IndicF5 benchmark (Hindi synthetic ref, CPU): RTF ≈ 16–23 (a 3–4 s clip takes 64–91 s), and outputs are shorter than XTTS's (3.9 s vs 7.8 s for the same sentence). XTTS on MPS for the same Hindi lines: RTF ≈ 0.6. **XTTS stays default**; IndicF5 kept as an optional engine for a listening comparison.
 - **2026-10-11** Custom SVG waveform instead of WaveSurfer: themeable, draw-in animation, ~100 lines, no dependency. Native `<select>` for engines (accessible); Radix only for Dialog + Slider.
 - **2026-10-11** Datetimes: `UTCDateTime` TypeDecorator, since SQLite returned naive datetimes and the UI showed "5 h ago" in IST. Same column type underneath, so no migration.
 - **2026-10-11** Voice-level quality summary carries clip reasons up ("1 of 2 clips: …") so every rating has a reason (an "Okay" with no reason was showing).
 - **2026-10-11** Auto-transcription with **mlx-whisper large-v3-turbo** (1.6 GB) over small (0.48 GB, weaker Hindi) and faster-whisper (CPU-only on Mac). Runs in the main venv, loaded once. Measured: English clip transcribed perfectly in 4 s including first load; Hindi in 1.1 s with minor spelling slips → per-phrase correction UI.
-- **2026-10-11** Orb redesigned at Rahul's request ("feel like AI is happening"): rotating conic halo, drifting blobs inside the sphere, orbiting particles, travelling ray ring; voiceprint gets a ripple + slow rotation through every step. Both are still under reduced motion.
+- **2026-10-11** Orb redesigned at the owner's request ("feel like AI is happening"): rotating conic halo, drifting blobs inside the sphere, orbiting particles, travelling ray ring; voiceprint gets a ripple + slow rotation through every step. Both are still under reduced motion.
 - **2026-10-11** Worker engines set `HF_HUB_OFFLINE=1` once their weights are cached (offline requirement); XTTS skips its downloader when `model.pth` exists.
 
 ## Conventions
 
+- **Never commit secrets or private data.** No tokens, keys, `.env`, `data/` or the local brief. `.githooks/pre-commit` blocks token/key patterns and those paths (enable per clone: `git config core.hooksPath .githooks`). The HF token lives only in `~/.cache/huggingface/token`. Before every push, scan the staged diff.
 - **Commits:** `type(scope): summary` + `Problem:` / `Solution:` body. Types: feat, fix, refactor, docs, test, chore. Scopes: backend, frontend, db, engines, docs. One commit per phase minimum; update this file in the same commit.
 - **Python:** ruff (line 100, rules E,F,I,B,UP; B008 ignored for FastAPI `Depends`). Type hints everywhere.
 - **Add a migration:** change the model → `uv run vaani make-migration "msg"` → read and fix the generated file → `uv run pytest` (`test_models_match_migrations` fails if a model drifted from migrations).
@@ -166,7 +167,7 @@ Single local user, no login. The threat is *other websites in the same browser* 
 - **Worker stdout is the protocol.** `_protocol.serve()` redirects fd 1 to stderr, but imports can print earlier, so the parent skips non-JSON lines.
 - **IndicF5 venv pins** (setup.py doesn't pin, requirements.txt does): `transformers<4.50` (5.x builds models on the meta device and IndicF5's model.py loads its vocoder with real tensors → "Tensor on device cpu is not on the expected device meta"), `numpy<=1.26.4`, `datasets<4` (5.x needs a newer huggingface_hub than transformers 4.49 allows), plus `torchcodec` (newer torchaudio needs it to load audio). See `backend/workers/README.md`.
 - **Offline switch**: worker engines get `HF_HUB_OFFLINE=1` only after one successful load (marker `data/models/.<engine>-loaded-once`). Checking the main repo cache isn't enough, because IndicF5 downloads its vocoder separately on first load.
-- **Dev server reloads on every backend edit** — if Rahul is using the app at the time, a running job is interrupted (marked "Interrupted").
+- **Dev server reloads on every backend edit** — if someone is using the app at the time, a running job is interrupted (marked "Interrupted").
 - **HF token location**: `hf auth login` writes `~/.cache/huggingface/token`; workers get `HF_HOME=data/models/hf` for weights, so we pass `HF_TOKEN_PATH` explicitly.
 - **Uploads**: allowed extensions in `voices.ALLOWED_EXTENSIONS` (incl. aiff/aif — macOS's native format). FastAPI `Form(...)` rejects empty strings before our validators, so required text fields use `Form("")` and the service validates (gives a proper `code`).
 - **Test sessions go stale** after `runner.run_one()` (the job used other sessions) → `session.expire_all()`.
@@ -177,7 +178,7 @@ Single local user, no login. The threat is *other websites in the same browser* 
 - **Tests must not run real Whisper:** conftest sets `VAANI_TRANSCRIBE_ON_CREATE=false`; tests monkeypatch `transcription.transcribe_file`. (Forgetting this made the suite take 4 min.)
 - **React Query caches previews by text**: after changing the dictionary, invalidate `["pron-preview"]` as well as `["pronunciations"]` (`useRefreshDictionary`), or the Try-it box and Generate's chips show stale results. There's a regression test.
 - **Vite build** warns that the bundle is over 500 kB (React + motion + Query). Harmless for a local app.
-- **IndicF5** pins `transformers<4.50`, `numpy<=1.26.4` and installs a module named `f5_tts`; coqui-tts 0.27.5 needs `transformers>=4.57`. **Separate venv** (`.venvs/indicf5`, Python 3.10). The model is gated on Hugging Face: Rahul must accept the terms and log in.
+- **IndicF5** pins `transformers<4.50`, `numpy<=1.26.4` and installs a module named `f5_tts`; coqui-tts 0.27.5 needs `transformers>=4.57`. **Separate venv** (`.venvs/indicf5`, Python 3.10). The model is gated on Hugging Face: the user must accept the terms and log in.
 - **F5-TTS MLX** needs a mono 24 kHz reference of about 5–10 s plus its transcript. Likely English-only.
 - **Tests** must never point at `data/`. conftest overrides `VAANI_DATA_DIR`/`DATABASE_URL` before app import.
 - `motion/react` re-exports framer-motion 14. `MotionConfig`, `useReducedMotion` and `AnimatePresence` all live there.

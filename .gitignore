@@ -54,3 +54,18 @@ test-results/
 
 # Private project brief (kept locally, never published)
 vaani-claude-code-prompt.md
+
+# Credentials and keys — never commit
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+*token*.txt
+*secret*
+!**/tokens.ts
+!**/tokens.css
+!**/tokens.test.ts
+.huggingface/
+credentials*.json

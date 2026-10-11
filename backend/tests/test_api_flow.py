@@ -43,7 +43,7 @@ def test_full_voice_and_generation_flow(db):
         r = client.post(
             "/api/v1/voices",
             data={
-                "name": "Rahul",
+                "name": "Asha",
                 "language": "en",
                 "consent_note": CONSENT,
                 "kinds": ["upload", "recording"],
@@ -88,11 +88,11 @@ def test_full_voice_and_generation_flow(db):
         assert "attachment" in mp3.headers["content-disposition"]
 
         history = client.get("/api/v1/generations").json()
-        assert history[0]["id"] == gen_id and history[0]["voice_name"] == "Rahul"
+        assert history[0]["id"] == gen_id and history[0]["voice_name"] == "Asha"
         assert client.get("/api/v1/voices").json()[0]["generation_count"] == 1
 
-        r = client.patch(f"/api/v1/voices/{voice_id}", json={"name": "Rahul K"})
-        assert r.json()["name"] == "Rahul K"
+        r = client.patch(f"/api/v1/voices/{voice_id}", json={"name": "Asha K"})
+        assert r.json()["name"] == "Asha K"
 
         d = client.delete(f"/api/v1/voices/{voice_id}").json()
         assert d["leftover_paths"] == [] and d["generations_removed"] == 1

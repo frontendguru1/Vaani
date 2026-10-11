@@ -1,6 +1,6 @@
 """Auto-transcription with mlx-whisper (Apple GPU). Used to give every clip timestamped
 phrases, so engines that need an exact transcript (F5, IndicF5) can cut a short reference
-whose words are known, and so Rahul can check what was heard.
+whose words are known, and so the user can check what was heard.
 
 The model loads lazily once and stays loaded (mlx_whisper caches it in-process).
 """
