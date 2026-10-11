@@ -143,3 +143,20 @@ def test_trim_silence_keeps_a_little_padding():
     x = np.concatenate([np.zeros(300), np.ones(200) * 0.5, np.zeros(300)]).astype(np.float32)
     y = trim_silence(x, sr, keep_ms=40)
     assert 270 <= len(y) <= 300
+
+
+def test_cold_model_reports_loading_step(db):
+    from app.engines import registry
+
+    s, runner = db
+    voice, _ = make_voice(s, runner)
+    registry.get_engine("fake").unload()
+    events = []
+    runner.publish = lambda job_id, ev: events.append(ev)
+    _gen, job = generation.create_generation(
+        s, voice_id=voice.id, script="Cold start here.", language="en"
+    )
+    runner.run_one(job.id)
+    steps = [e["step"] for e in events]
+    assert "loading_model" in steps
+    assert steps.index("loading_model") < steps.index("synthesizing")

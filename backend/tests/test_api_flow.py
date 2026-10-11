@@ -130,3 +130,26 @@ def test_quality_check_endpoint_stores_nothing(db):
     assert not (storage.data_dir() / "voices").exists() or not any(
         (storage.data_dir() / "voices").iterdir()
     )
+
+
+def test_timestamps_are_utc_aware(db):
+    """Regression: SQLite returned naive datetimes, so the UI showed '5 h ago' in IST."""
+    from datetime import UTC, datetime
+
+    from app.models import AppSetting
+
+    s, _ = db
+    s.add(AppSetting(key="tz-test", value=1))
+    s.commit()
+    s.expire_all()
+    row = s.get(AppSetting, "tz-test")
+    assert row.created_at.tzinfo is not None
+    assert abs((datetime.now(UTC) - row.created_at).total_seconds()) < 60
+    with TestClient(app) as client:
+        r = client.post(
+            "/api/v1/voices",
+            data={"name": "T", "consent_note": CONSENT},
+            files=[("files", ("a.wav", speech_wav_bytes(6), "audio/wav"))],
+        )
+        stamp = r.json()["voice"]["created_at"]
+    assert stamp.endswith("Z") or stamp.endswith("+00:00"), stamp

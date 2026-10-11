@@ -15,6 +15,7 @@ class F5MLXEngine(SubprocessEngine):
     sample_rate = 24_000
     license = "Code MIT; weights unstated (upstream F5-TTS weights CC-BY-NC)"
     venv = "f5mlx"
+    hf_repo = "lucasnewman/f5-tts-mlx"
     worker_script = "f5mlx_worker.py"
     max_ref_seconds = 12.0
 

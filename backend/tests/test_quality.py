@@ -117,3 +117,24 @@ def test_summary_ignores_one_bad_clip_but_needs_enough_total_speech():
     s2 = summarize([short])
     assert s2["rating"] == "okay"
     assert s2["issues"][0]["code"] == "total_short"
+
+
+def test_summary_carries_clip_reasons_up():
+    a = analyze(np.concatenate([silence(0.5), tone_speech(7), silence(0.5)]), SR, check_pitch=False)
+    b = analyze(
+        np.concatenate([silence(0.5), tone_speech(12), silence(0.5)]), SR, check_pitch=False
+    )
+    s = summarize([a, b])
+    assert s["rating"] == "okay"
+    msgs = [i["message"] for i in s["issues"]]
+    assert any(m.startswith("1 of 2 clips:") and "speech" in m for m in msgs), msgs
+
+
+def test_summary_mentions_skipped_poor_clips():
+    good = analyze(
+        np.concatenate([silence(0.5), tone_speech(20), silence(0.5)]), SR, check_pitch=False
+    )
+    bad = analyze(np.concatenate([silence(3), tone_speech(1), silence(3)]), SR, check_pitch=False)
+    s = summarize([good, bad])
+    assert s["rating"] == "good"
+    assert any(i["code"] == "poor_clips_skipped" for i in s["issues"])

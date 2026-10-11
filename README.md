@@ -2,13 +2,17 @@
 
 A personal voice-cloning studio that runs **entirely on your Mac**. Give it a few clean clips of someone's voice (with their permission). Then type a script in English, Hindi or a mix of both, and Vaani reads it back in that voice. No cloud services, no accounts, and it works offline once the models are downloaded.
 
-> **Status:** the backend works end to end. You can create a voice, generate speech in it with live progress, browse history and delete everything. The web interface for these is being built next (Phase 3); until then the backend can be used through its API at http://127.0.0.1:8000/docs.
+> **Status:** the core app works. Create a voice from uploads or the microphone, generate English, Hindi or Hinglish speech in it with live progress, play and download the result, and browse or delete your history. Extras (Phase 4) come next.
 
-![Screenshot placeholder](docs/screenshot.png)
+![Generating speech: the current sentence is highlighted as it plays](docs/screenshot.png)
+
+| Voice library | Creating a voice |
+|---|---|
+| ![Voices](docs/screenshot-voices.png) | ![Creating a voice](docs/screenshot-create-voice.png) |
 
 ## Features
 
-**Planned for the core app**
+**Core app (working)**
 - Create a Voice from uploaded clips (wav/mp3/m4a/ogg) or a microphone recording
 - Automatic cleanup: mono conversion, silence trimming, loudness normalising, optional denoise
 - A quality check with a Good / Okay / Poor rating and the reasons for it
@@ -170,6 +174,6 @@ Which engines Vaani ships with depends on a listening test in Phase 1. **Vaani i
 0. ✅ Scaffolding
 1. 🎧 Quality spike: the benchmark is built; the listening test on a real voice is still to do
 2. ✅ Backend core: voices, cleanup, quality checks, generation, history
-3. Frontend: voice library, recording, generation studio, history
+3. ✅ Frontend: voice library, recording, generation studio, history
 4. Polish and extras
 5. Notes on fine-tuning (documentation only)

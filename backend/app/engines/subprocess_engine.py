@@ -34,6 +34,7 @@ def hf_token_path() -> Path | None:
 class SubprocessEngine(TTSEngine):
     venv: ClassVar[str]
     worker_script: ClassVar[str]
+    hf_repo: ClassVar[str | None] = None  # model repo; once cached, workers run offline
     max_ref_seconds: ClassVar[float] = 12.0
     needs_transcript = True
 
@@ -55,6 +56,14 @@ class SubprocessEngine(TTSEngine):
     @property
     def log_path(self) -> Path:
         return get_settings().data_dir / "logs" / f"{self.name}.log"
+
+    def model_cached(self) -> bool:
+        if not self.hf_repo:
+            return False
+        repo_dir = (
+            get_settings().models_dir / "hf" / "hub" / f"models--{self.hf_repo.replace('/', '--')}"
+        )
+        return any(repo_dir.glob("snapshots/*/*"))
 
     def availability(self) -> Availability:
         if not self.python.is_file():
@@ -80,6 +89,8 @@ class SubprocessEngine(TTSEngine):
             "PYTHONPATH": str(WORKERS_DIR),  # so any worker script can import _protocol
             "VAANI_DEVICE": settings.device,
         }
+        if self.model_cached():
+            env["HF_HUB_OFFLINE"] = "1"  # no network once weights are on disk
         token = hf_token_path()
         if token:
             env["HF_TOKEN_PATH"] = str(token)

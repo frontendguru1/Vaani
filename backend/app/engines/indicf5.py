@@ -15,6 +15,7 @@ class IndicF5Engine(SubprocessEngine):
     sample_rate = 24_000
     license = "MIT (gated: accept terms on Hugging Face)"
     venv = "indicf5"
+    hf_repo = "ai4bharat/IndicF5"
     worker_script = "indicf5_worker.py"
     max_ref_seconds = 15.0
 

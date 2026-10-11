@@ -219,9 +219,32 @@ def summarize(reports: list[QualityReport]) -> dict[str, Any]:
         )
     sample_ratings = [r.rating for r in reports]
     good = [r for r in reports if r.rating != "poor"]
+    # Carry the reasons up from the clips, so a voice-level rating always says why.
+    seen = {i.code for i in issues}
+    usable = good or reports
+    for r in usable:
+        for i in r.issues:
+            if i.code not in seen:
+                seen.add(i.code)
+                n = sum(any(x.code == i.code for x in rr.issues) for rr in usable)
+                prefix = (
+                    ""
+                    if len(reports) == 1
+                    else ("All clips: " if n == len(usable) else f"{n} of {len(reports)} clips: ")
+                )
+                issues.append(Issue(i.severity, i.code, prefix + i.message))
+    if len(good) < len(reports):
+        issues.append(
+            Issue(
+                "okay",
+                "poor_clips_skipped",
+                f"{len(reports) - len(good)} clip(s) rated Poor and left out of the voiceprint.",
+            )
+        )
     # A voice is as good as its usable samples, not dragged down by one bad clip.
     base = _worst([r.rating for r in good]) if good else "poor"
-    rating = _worst([base, *[i.severity for i in issues]])
+    voice_level = [i.severity for i in issues if i.code in ("total_short", "total_long")]
+    rating = _worst([base, *voice_level])
     scores = [r.score for r in (good or reports)]
     score = int(np.mean(scores)) if scores else 0
     score = {"good": max(score, 70), "okay": int(np.clip(score, 40, 69)), "poor": min(score, 39)}[

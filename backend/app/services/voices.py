@@ -25,7 +25,17 @@ from app.services.quality import QualityReport, summarize
 log = logging.getLogger("vaani.voices")
 
 ALLOWED_EXTENSIONS = {
-    "wav", "mp3", "m4a", "ogg", "webm", "flac", "aac", "mp4", "opus", "aiff", "aif",
+    "wav",
+    "mp3",
+    "m4a",
+    "ogg",
+    "webm",
+    "flac",
+    "aac",
+    "mp4",
+    "opus",
+    "aiff",
+    "aif",
 }
 MAX_FILE_BYTES = 200 * 1024 * 1024
 MAX_FILES = 20

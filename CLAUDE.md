@@ -7,7 +7,8 @@ Vaani is a personal, **fully local** voice-cloning app: upload/record clips of a
 - **Phase 0 — Scaffolding: DONE (2026-10-11).**
 - **Phase 1 — Quality spike: BUILT, listening decision PENDING.** `backend/scripts/benchmark_engines.py` works for all three engines. Only a *synthetic* reference (macOS "Rishi" voice) has been benchmarked so far — it proves the pipeline, not cloning quality. Rahul still needs to (a) supply a real 15–60 s clip + transcript and listen, (b) finish the IndicF5 Hugging Face token login. XTTS-v2 is the working default until then.
 - **Phase 2 — Backend core: DONE (2026-10-11).** Voices (upload → clean → quality → voiceprint as a job), library CRUD + hard delete, engine registry + 3 engines, generation with chunking + SSE progress + stitching + MP3, history/regenerate/delete, consistency check. 69 tests.
-- **Next: Phase 3 — Frontend** (Voices, Generate, History pages with all section-5 animations).
+- **Phase 3 — Frontend: DONE (2026-10-11).** Voices (bento library, create dialog with drop zone, mic recorder, per-file quality cards, SSE-driven processing stepper + voiceprint + flourish, rename, two-step delete), Generate (voice/engine/language/speed, script editor with live sentence highlight, progress orb, result player with playback-synced highlight, WAV/MP3), History (play, regenerate, delete). Verified with Playwright (desktop, 390px, reduced motion). 15 frontend tests.
+- **Next: Phase 4** — Rahul picks the order of nice-to-haves. Also pending: real-voice listening test + IndicF5 token.
 - Known issues: F5-MLX outputs look short (4.5 s where XTTS says 7 s) — possibly clipped by its duration predictor; needs listening. IndicF5 untested (gated).
 
 ## Stack (versions actually installed)
@@ -18,7 +19,7 @@ Vaani is a personal, **fully local** voice-cloning app: upload/record clips of a
 | ML (main venv) | torch 2.14.1 (MPS ok), torchaudio 2.11, coqui-tts 0.27.5, transformers 4.57.6 (pinned <5), librosa |
 | Engine venvs | `.venvs/f5mlx` (Py 3.11, f5-tts-mlx 0.2.6, mlx 0.32.3), `.venvs/indicf5` (Py 3.10, IndicF5 from git) — see `backend/workers/README.md` |
 | DB | SQLite `data/vaani.db`, WAL + foreign keys on; `DATABASE_URL` overrides it |
-| Frontend | Node 22.23 (Homebrew `node@22`, keg-only), pnpm 10, Vite 8, React 19, TypeScript 7, Tailwind 4 (`@tailwindcss/vite`), `motion` 14, Vitest 5 |
+| Frontend | Node 22.23 (Homebrew `node@22`, keg-only), pnpm 10, Vite 8, React 19, TypeScript 7, Tailwind 4 (`@tailwindcss/vite`), `motion` 14, React Router 7, TanStack Query 5, Radix Dialog + Slider, lucide-react, Vitest 5 |
 | Fonts | Bundled via @fontsource (Inter Variable, JetBrains Mono Variable, Noto Sans Devanagari) — no CDN, works offline |
 | Audio | ffmpeg 9.0.2 (Homebrew) |
 
@@ -77,9 +78,15 @@ backend/tests/       conftest points VAANI_DATA_DIR at /tmp/vaani-test-data (nev
 frontend/src/
   styles/tokens.css  ALL colours/radii/shadows/blurs (CSS vars); index.css maps them into Tailwind @theme
   motion/tokens.ts   ALL durations/easings/springs/variants
-  components/        shared UI (Aurora, Logo)
-  features/<name>/   feature modules (api.ts + components + tests)
-  lib/api.ts         fetch wrapper for /api/v1
+  components/        shared UI: AppShell (sidebar / mobile tab bar, PageHeader), Button, Modal (Radix),
+                     Toasts, Waveform (+ peaks.ts, width-based bars, draw-in), AudioPlayer, Orb,
+                     ScoreRing/RatingPill, ProgressRing, EmptyState, Aurora, Logo
+  features/voices/   VoicesPage, VoiceCard, CreateVoiceDialog, FileCard, Dropzone, Recorder, Voiceprint
+  features/generate/ GeneratePage, ScriptEditor (textarea + mirrored backdrop for highlighting)
+  features/history/  HistoryPage
+  features/health/   api.ts (health probe used by the sidebar status line)
+  lib/               api.ts (types + endpoints; XHR `upload()` for real upload progress),
+                     useJobEvents.ts (SSE hook), voiceColor.ts (per-voice hue), format.ts
 data/                gitignored: vaani.db, voices/, generations/, benchmarks/, models/
 ```
 
@@ -94,6 +101,8 @@ data/                gitignored: vaani.db, voices/, generations/, benchmarks/, m
 - **Generation flow:** chunk (`.?!।॥`, merges <20-char sentences, splits >`max_chunk_chars` at clauses; XTTS en 230 / hi 140) → per-chunk synth (events `chunk_started` carry char `start/end` for highlighting) → `stitch()` trims chunk silence, 8 ms fades, inserts sentence/paragraph pauses → `output.wav`; MP3 made on first request.
 - **Delete:** `delete_voice` removes rows (FK cascade: samples, profiles, generations, chunks; jobs by id) and folders, and returns `leftover_paths` (must be empty). `vaani check` finds orphans both ways.
 - **Frontend motion:** `<MotionConfig reducedMotion="user">` wraps the app, so transforms are dropped under prefers-reduced-motion and opacity fades remain. Use `fadeOnly()` for hand-rolled motion. Progress visuals must be driven by backend events, never faked.
+- **Frontend data:** TanStack Query keys `["voices"]`, `["generations"]`, `["engines"]`, `["health"]`; lists poll every 2 s only while something is processing. Jobs: `useJobEvents(jobId, onEvent)` opens an EventSource on `/jobs/{id}/events`, so add new event types to its list. Route transitions live in `App.tsx` (`AnimatedRoutes` passes the frozen `location` to `<Routes>`).
+- **Design identity:** the one bold element is the per-voice colour (`voiceColors(id)`, oklch hue from the id) used on the card, waveform, orb and history stripe. No all-caps eyebrows and no "A · B" meta strings; monospace only for numbers and timers.
 
 ## Decision log
 
@@ -110,6 +119,10 @@ data/                gitignored: vaani.db, voices/, generations/, benchmarks/, m
 - **2026-10-11** Quality checker is pure numpy + librosa.yin (no ML VAD): energy VAD with 3rd-percentile noise floor; SNR reported as `null` when there are no pauses to measure against; pitch-spread IQR > 6.5 semitones → "maybe multiple speakers" (heuristic, says so).
 - **2026-10-11** Preprocessing uses only ffmpeg filters (highpass, optional `afftdn` denoise, silenceremove ×2 with areverse, `loudnorm` −20 LUFS) — no DeepFilterNet/Demucs download needed.
 - **2026-10-11** **Engine choice still awaiting Rahul's listening test on a real clip.**
+- **2026-10-11** Custom SVG waveform instead of WaveSurfer: themeable, draw-in animation, ~100 lines, no dependency. Native `<select>` for engines (accessible); Radix only for Dialog + Slider.
+- **2026-10-11** Datetimes: `UTCDateTime` TypeDecorator, since SQLite returned naive datetimes and the UI showed "5 h ago" in IST. Same column type underneath, so no migration.
+- **2026-10-11** Voice-level quality summary carries clip reasons up ("1 of 2 clips: …") so every rating has a reason (an "Okay" with no reason was showing).
+- **2026-10-11** Worker engines set `HF_HUB_OFFLINE=1` once their weights are cached (offline requirement); XTTS skips its downloader when `model.pth` exists.
 
 ## Conventions
 
@@ -134,6 +147,9 @@ data/                gitignored: vaani.db, voices/, generations/, benchmarks/, m
 - **HF token location**: `hf auth login` writes `~/.cache/huggingface/token`; workers get `HF_HOME=data/models/hf` for weights, so we pass `HF_TOKEN_PATH` explicitly.
 - **Uploads**: allowed extensions in `voices.ALLOWED_EXTENSIONS` (incl. aiff/aif — macOS's native format). FastAPI `Form(...)` rejects empty strings before our validators, so required text fields use `Form("")` and the service validates (gives a proper `code`).
 - **Test sessions go stale** after `runner.run_one()` (the job used other sessions) → `session.expire_all()`.
+- **uvicorn --reload unloads the models** on every backend edit, so the next job reloads XTTS (~30 s). The generation job reports a `loading_model` step for this; don't mistake it for slowness.
+- **Playwright**: the system has no project-local Playwright; scripts borrow `~/Projects/career-ops/node_modules/playwright` via `createRequire`. Full-page phone screenshots draw the fixed tab bar mid-page (capture artefact).
+- **Vite build** warns that the bundle is over 500 kB (React + motion + Query). Harmless for a local app.
 - **IndicF5** pins `transformers<4.50`, `numpy<=1.26.4` and installs a module named `f5_tts`; coqui-tts 0.27.5 needs `transformers>=4.57`. **Separate venv** (`.venvs/indicf5`, Python 3.10). The model is gated on Hugging Face: Rahul must accept the terms and log in.
 - **F5-TTS MLX** needs a mono 24 kHz reference of about 5–10 s plus its transcript. Likely English-only.
 - **Tests** must never point at `data/`. conftest overrides `VAANI_DATA_DIR`/`DATABASE_URL` before app import.

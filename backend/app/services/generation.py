@@ -196,6 +196,11 @@ def run_generation(ctx: JobContext, payload: dict[str, Any]) -> dict[str, Any]:
             event="voiceprint",
             cached=not fresh,
         )
+        if not engine.is_loaded:
+            # Cached voiceprint but cold model (e.g. after a restart): say so, or the UI
+            # would sit on "sentence 1" for the ~30 s the model takes to load.
+            ctx.progress(0.08, "loading_model", f"Loading {engine.label}…")
+            engine.load()
         gen.engine_version = engine.version
 
         chunks = list(gen.chunks)
