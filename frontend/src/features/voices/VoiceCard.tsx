@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "motion/react";
-import { AudioLines, Check, Pencil, Trash2, TriangleAlert, X } from "lucide-react";
+import { AudioLines, Check, FileAudio, Pencil, Trash2, TriangleAlert, X } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AudioPlayer } from "../../components/AudioPlayer";
@@ -10,6 +10,7 @@ import { useToast } from "../../components/Toasts";
 import { api, ApiError, audioUrl, type Voice } from "../../lib/api";
 import { LANGUAGE_NAMES, relativeDate } from "../../lib/format";
 import { voiceColors } from "../../lib/voiceColor";
+import { ClipsDialog } from "./ClipsDialog";
 import { spring, transition, variants } from "../../motion/tokens";
 
 function initials(name: string) {
@@ -22,6 +23,7 @@ export function VoiceCard({ voice }: { voice: Voice }) {
   const [confirming, setConfirming] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(voice.name);
+  const [clipsOpen, setClipsOpen] = useState(false);
   const qc = useQueryClient();
   const toast = useToast();
   const navigate = useNavigate();
@@ -124,6 +126,9 @@ export function VoiceCard({ voice }: { voice: Voice }) {
               <Button size="sm" variant="ghost" disabled={!ready} onClick={() => navigate(`/generate?voice=${voice.id}`)}>
                 <AudioLines size={14} /> Generate
               </Button>
+              <Button size="sm" variant="quiet" disabled={!ready} onClick={() => setClipsOpen(true)} aria-label={`Clips and transcripts for ${voice.name}`}>
+                <FileAudio size={14} /> Clips
+              </Button>
               <span className="ml-auto text-xs text-faint">{relativeDate(voice.created_at)}</span>
               <Button size="sm" variant="quiet" aria-label={`Rename ${voice.name}`} onClick={() => { setDraft(voice.name); setEditing(true); }}>
                 <Pencil size={14} />
@@ -135,6 +140,7 @@ export function VoiceCard({ voice }: { voice: Voice }) {
           )}
         </AnimatePresence>
       </div>
+      {ready && <ClipsDialog voice={voice} open={clipsOpen} onOpenChange={setClipsOpen} />}
     </motion.article>
   );
 }

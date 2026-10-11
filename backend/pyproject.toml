@@ -19,6 +19,7 @@ dependencies = [
     "numpy>=2.4.6",
     "soundfile>=0.14.0",
     "librosa>=0.11.0",
+    "mlx-whisper>=0.4.3",
 ]
 
 [dependency-groups]

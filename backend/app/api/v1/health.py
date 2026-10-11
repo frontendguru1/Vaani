@@ -8,7 +8,7 @@ from app import __version__
 from app.config import get_settings
 from app.db import get_session
 from app.schemas.health import HealthResponse
-from app.services import system
+from app.services import system, transcription
 
 router = APIRouter(tags=["health"])
 
@@ -28,4 +28,5 @@ def health(session: Session = Depends(get_session)) -> HealthResponse:
         database=db_ok,
         ffmpeg=asdict(ffmpeg),
         device=asdict(system.device_info(get_settings().device)),
+        transcription=transcription.status(),
     )

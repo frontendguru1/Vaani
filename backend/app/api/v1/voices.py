@@ -10,8 +10,10 @@ from app.db import get_session
 from app.models import VoiceEngineProfile
 from app.schemas.voices import (
     DeleteResult,
+    JobStarted,
     QualityCheck,
     SampleOut,
+    SegmentTexts,
     VoiceCreated,
     VoiceDetail,
     VoiceOut,
@@ -28,6 +30,7 @@ def _out(voice, counts: dict[str, int] | None = None) -> VoiceOut:
     return VoiceOut.model_validate(voice).model_copy(
         update={
             "has_preview": bool(voice.preview_path),
+            "has_transcripts": any(s.transcript_segments for s in voice.samples),
             "generation_count": (counts or {}).get(voice.id, 0),
         }
     )
@@ -118,6 +121,21 @@ def update_voice(voice_id: str, body: VoiceUpdate, session: Session = Depends(ge
 def delete_voice(voice_id: str, session: Session = Depends(get_session)):
     report = voices.delete_voice(session, voice_id)
     return DeleteResult(**report.__dict__)
+
+
+@router.post("/{voice_id}/transcribe", response_model=JobStarted, status_code=202)
+def transcribe(voice_id: str, force: bool = False, session: Session = Depends(get_session)):
+    """Transcribe the voice's clips with Whisper (background job)."""
+    return JobStarted(job_id=voices.start_transcription(session, voice_id, force).id)
+
+
+@router.put("/{voice_id}/samples/{sample_id}/transcript", response_model=VoiceDetail)
+def correct_transcript(
+    voice_id: str, sample_id: str, body: SegmentTexts, session: Session = Depends(get_session)
+):
+    """Fix what Whisper heard, one text per phrase (timestamps are kept)."""
+    voices.update_segments(session, voice_id, sample_id, body.texts)
+    return _detail(session, voices.get_voice(session, voice_id))
 
 
 @router.get("/{voice_id}/preview")

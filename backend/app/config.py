@@ -38,6 +38,9 @@ class Settings(BaseSettings):
         "http://localhost:8000",
         "http://127.0.0.1:8000",
     ]
+    # Auto-transcription (mlx-whisper). Weights live in data/models/whisper/<name>.
+    transcribe_model: str = "mlx-community/whisper-large-v3-turbo"
+    transcribe_on_create: bool = True
     max_upload_mb: int = 1024  # whole request; each file is also capped at 200 MB
 
     @field_validator("data_dir")

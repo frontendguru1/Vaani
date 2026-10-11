@@ -20,9 +20,10 @@ A personal voice-cloning studio that runs **entirely on your Mac**. Give it a fe
 - A required consent note per voice
 - Generate speech from long scripts, with natural pauses and live progress
 - Generation history with replay, regenerate and download (WAV/MP3)
+- Automatic transcription of every clip (Whisper, on the Apple GPU), with a Clips view to check and correct what was heard
 - A dark, animated interface that respects reduced-motion settings
 
-**Later:** speaking-style variants, auto-transcription, a pronunciation dictionary, pause markers, multi-voice dialogue, batch generation, subtitle export, and side-by-side engine comparison.
+**Later:** speaking-style variants, a pronunciation dictionary, pause markers, multi-voice dialogue, batch generation, subtitle export, and side-by-side engine comparison.
 
 ## Requirements
 
@@ -151,6 +152,7 @@ Everything is under `/api/v1`. Interactive docs are at http://127.0.0.1:8000/doc
 | [XTTS-v2](https://huggingface.co/coqui/XTTS-v2) via [coqui-tts](https://github.com/idiap/coqui-ai-TTS) | English + Hindi, baseline | 2.1 GB | Code MPL-2.0; weights **Coqui Public Model License (non-commercial)** |
 | [IndicF5](https://huggingface.co/ai4bharat/IndicF5) (AI4Bharat) | Hindi quality | 1.4 GB | MIT; access requires accepting the terms on Hugging Face |
 | [F5-TTS MLX](https://github.com/lucasnewman/f5-tts-mlx) | Fast English on Apple Silicon | 0.2–1.4 GB | Code MIT; weights license not stated (upstream F5-TTS weights are CC-BY-NC) |
+| [Whisper large-v3-turbo](https://huggingface.co/mlx-community/whisper-large-v3-turbo) via mlx-whisper | Transcribing clips (not a voice engine) | 1.6 GB | MIT |
 
 Which engines Vaani ships with depends on a listening test in Phase 1. **Vaani is for personal and family use only.** Do not use it commercially.
 
@@ -179,5 +181,5 @@ Vaani only answers requests addressed to `localhost`/`127.0.0.1`, and refuses up
 1. 🎧 Quality spike: the benchmark is built; the listening test on a real voice is still to do
 2. ✅ Backend core: voices, cleanup, quality checks, generation, history
 3. ✅ Frontend: voice library, recording, generation studio, history
-4. Polish and extras
+4. 🚧 Polish and extras: auto-transcription done
 5. Notes on fine-tuning (documentation only)

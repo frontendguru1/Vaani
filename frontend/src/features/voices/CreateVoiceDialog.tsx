@@ -1,4 +1,4 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "motion/react";
 import { Check, Mic } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
@@ -9,6 +9,7 @@ import { RatingPill, ScoreRing } from "../../components/ScoreRing";
 import { useToast } from "../../components/Toasts";
 import { api, ApiError, type JobEvent, type QualityReport, type VoiceSummaryReport } from "../../lib/api";
 import { useJobEvents } from "../../lib/useJobEvents";
+import { getHealth } from "../health/api";
 import { voiceHue } from "../../lib/voiceColor";
 import { spring, transition, variants } from "../../motion/tokens";
 import { Dropzone } from "./Dropzone";
@@ -16,16 +17,17 @@ import { FileCard, type PendingFile } from "./FileCard";
 import { extensionFor, Recorder } from "./Recorder";
 import { Flourish, Voiceprint } from "./Voiceprint";
 
-const STEPS = [
+const ALL_STEPS = [
   { key: "cleaning", label: "Cleaning the audio" },
   { key: "quality", label: "Checking quality" },
+  { key: "transcribing", label: "Transcribing what was said" },
   { key: "voiceprint", label: "Extracting the voiceprint" },
   { key: "saving", label: "Saving" },
 ] as const;
 
-function stepIndex(step: string | null): number {
-  if (step === "loading_model") return 2;
-  const i = STEPS.findIndex((s) => s.key === step);
+function stepIndex(steps: readonly { key: string }[], step: string | null): number {
+  const key = step === "loading_model" ? "voiceprint" : step;
+  const i = steps.findIndex((s) => s.key === key);
   return i < 0 ? 0 : i;
 }
 
@@ -45,6 +47,9 @@ export function CreateVoiceDialog({ open, onOpenChange }: { open: boolean; onOpe
   const toast = useToast();
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const health = useQuery({ queryKey: ["health"], queryFn: getHealth });
+  const t = health.data?.transcription;
+  const STEPS = ALL_STEPS.filter((s) => s.key !== "transcribing" || (t?.available && t.on_create));
 
   const reset = () => {
     setName(""); setDescription(""); setConsent(""); setFiles([]); setDenoise(false);
@@ -117,7 +122,7 @@ export function CreateVoiceDialog({ open, onOpenChange }: { open: boolean; onOpe
   const hue = job ? voiceHue(job.voiceId) : 262;
   const processing = Boolean(job) && !jobState.done;
   const ready = jobState.done && !jobState.failed;
-  const current = stepIndex(ev?.step ?? null);
+  const current = stepIndex(STEPS, ev?.step ?? null);
   const progressInStep = ev ? ev.progress : 0;
 
   return (

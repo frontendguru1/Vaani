@@ -20,3 +20,4 @@ class HealthResponse(BaseModel):
     database: bool
     ffmpeg: FfmpegStatus
     device: DeviceStatus
+    transcription: dict = {}

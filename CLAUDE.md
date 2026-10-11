@@ -8,8 +8,8 @@ Vaani is a personal, **fully local** voice-cloning app: upload/record clips of a
 - **Phase 1 — Quality spike: BUILT, listening decision PENDING.** `backend/scripts/benchmark_engines.py` works for all three engines. Only a *synthetic* reference (macOS "Rishi" voice) has been benchmarked so far — it proves the pipeline, not cloning quality. Rahul still needs to (a) supply a real 15–60 s clip + transcript and listen, (b) finish the IndicF5 Hugging Face token login. XTTS-v2 is the working default until then.
 - **Phase 2 — Backend core: DONE (2026-10-11).** Voices (upload → clean → quality → voiceprint as a job), library CRUD + hard delete, engine registry + 3 engines, generation with chunking + SSE progress + stitching + MP3, history/regenerate/delete, consistency check. 69 tests.
 - **Phase 3 — Frontend: DONE (2026-10-11).** Voices (bento library, create dialog with drop zone, mic recorder, per-file quality cards, SSE-driven processing stepper + voiceprint + flourish, rename, two-step delete), Generate (voice/engine/language/speed, script editor with live sentence highlight, progress orb, result player with playback-synced highlight, WAV/MP3), History (play, regenerate, delete). Verified with Playwright (desktop, 390px, reduced motion). 15 frontend tests.
-- **Next: Phase 4** — Rahul picks the order of nice-to-haves. Also pending: real-voice listening test + IndicF5 token.
-- Known issues: F5-MLX and IndicF5 outputs come out shorter than XTTS's for the same sentence (possible clipping), and IndicF5 is ~20× slower than real time on CPU. Both transcript engines are unusable on a voice until it has a ≤12/15 s clip with its transcript; auto-transcription (Phase 4) would fix that.
+- **Phase 4 — in progress.** Done: **auto-transcription** (mlx-whisper large-v3-turbo; Transcribing step on voice creation, Clips dialog to play / read / correct phrases, one-click transcribe from Generate when F5/IndicF5 is picked). Rahul picks the next nice-to-have. Pending: real-voice listening test.
+- Known issues: F5-MLX and IndicF5 outputs come out shorter than XTTS's for the same sentence (possible clipping), and IndicF5 is ~20× slower than real time on CPU. Whisper's Hindi has small spelling slips (e.g. परिक्षन for परीक्षण), so check transcripts in the Clips dialog before relying on F5/IndicF5.
 - **Security review done 2026-10-11** (see "Security model" below); all confirmed findings fixed with tests.
 
 ## Stack (versions actually installed)
@@ -17,7 +17,7 @@ Vaani is a personal, **fully local** voice-cloning app: upload/record clips of a
 | Layer | Choice |
 |---|---|
 | Backend | Python 3.11.5 (Homebrew), uv 0.13, FastAPI 0.143, Uvicorn 0.54, SQLAlchemy 2, Alembic, pydantic-settings, python-ulid |
-| ML (main venv) | torch 2.14.1 (MPS ok), torchaudio 2.11, coqui-tts 0.27.5, transformers 4.57.6 (pinned <5), librosa |
+| ML (main venv) | torch 2.14.1 (MPS ok), torchaudio 2.11, coqui-tts 0.27.5, transformers 4.57.6 (pinned <5), librosa, mlx-whisper 0.4.3 (model `mlx-community/whisper-large-v3-turbo`, 1.6 GB, MIT, in `data/models/whisper/`) |
 | Engine venvs | `.venvs/f5mlx` (Py 3.11, f5-tts-mlx 0.2.6, mlx 0.32.3), `.venvs/indicf5` (Py 3.10, IndicF5 from git) — see `backend/workers/README.md` |
 | DB | SQLite `data/vaani.db`, WAL + foreign keys on; `DATABASE_URL` overrides it |
 | Frontend | Node 22.23 (Homebrew `node@22`, keg-only), pnpm 10, Vite 8, React 19, TypeScript 7, Tailwind 4 (`@tailwindcss/vite`), `motion` 14, React Router 7, TanStack Query 5, Radix Dialog + Slider, lucide-react, Vitest 5 |
@@ -67,6 +67,7 @@ backend/app/
                      generation.py (create, job handler, regenerate, delete, mp3)
                      jobs.py (single worker thread + SSE pub/sub) · preprocessing.py · quality.py
                      analysis.py (numpy VAD/segments) · chunking.py · stitching.py · audio.py (ffmpeg)
+                     transcription.py (mlx-whisper; best_window picks a transcribed ≤N s phrase run)
                      storage.py (data/ layout, rel paths) · maintenance.py (consistency) · errors.py
   models/          ORM; base.py has Base (naming convention), IdMixin (ULID), TimestampMixin
   schemas/         pydantic request/response models
@@ -100,6 +101,7 @@ data/                gitignored: vaani.db, voices/, generations/, benchmarks/, m
 - **Voiceprints:** `voices.ensure_profile(voice, engine)` returns the cached conditioning (XTTS latents `.pt`, or a 24 kHz ref clip + transcript for F5 engines), recomputing only if missing or the engine version changed. Row in `voice_engine_profiles`, files in `data/voices/<id>/engines/<engine>/`. XTTS uses the cleanest segments up to 60 s.
 - **Jobs:** `JobRunner` = one daemon thread + FIFO → only one job touches a model at a time. Kinds: `create_voice`, `generate`. Handlers report via `ctx.progress(fraction, step, message, event=..., **data)` → row update (throttled) + SSE publish. `/jobs/{id}/events` sends a `snapshot` first, then events until `succeeded`/`failed`, with 15 s keep-alives. Jobs left running at startup are marked failed ("Interrupted").
 - **Generation flow:** chunk (`.?!।॥`, merges <20-char sentences, splits >`max_chunk_chars` at clauses; XTTS en 230 / hi 140) → per-chunk synth (events `chunk_started` carry char `start/end` for highlighting) → `stitch()` trims chunk silence, 8 ms fades, inserts sentence/paragraph pauses → `output.wav`; MP3 made on first request.
+- **Transcription:** `voice_samples.transcript_segments` = Whisper phrases `[{start,end,text}]` in the processed clip; `transcript_source` = `user` (typed or corrected, never overwritten) | `whisper`. Runs as a step of `create_voice` (setting `VAANI_TRANSCRIBE_ON_CREATE`, never fails the voice) or as job `transcribe_voice` (`POST /voices/{id}/transcribe`). `PUT /voices/{id}/samples/{sid}/transcript {texts}` corrects phrase by phrase. Transcript engines get their reference from `_transcript_reference`: a typed transcript for a short clip, else `best_window` (longest run of phrases ≤ engine `max_ref_seconds`), cut to `engines/<eng>/ref_src.wav`. Changing transcripts drops transcript-engine voiceprints (`invalidate_transcript_profiles`).
 - **Delete:** `delete_voice` removes rows (FK cascade: samples, profiles, generations, chunks; jobs by id) and folders, and returns `leftover_paths` (must be empty). `vaani check` finds orphans both ways.
 - **Frontend motion:** `<MotionConfig reducedMotion="user">` wraps the app, so transforms are dropped under prefers-reduced-motion and opacity fades remain. Use `fadeOnly()` for hand-rolled motion. Progress visuals must be driven by backend events, never faked.
 - **Frontend data:** TanStack Query keys `["voices"]`, `["generations"]`, `["engines"]`, `["health"]`; lists poll every 2 s only while something is processing. Jobs: `useJobEvents(jobId, onEvent)` opens an EventSource on `/jobs/{id}/events`, so add new event types to its list. Route transitions live in `App.tsx` (`AnimatedRoutes` passes the frozen `location` to `<Routes>`).
@@ -135,6 +137,8 @@ Single local user, no login. The threat is *other websites in the same browser* 
 - **2026-10-11** Custom SVG waveform instead of WaveSurfer: themeable, draw-in animation, ~100 lines, no dependency. Native `<select>` for engines (accessible); Radix only for Dialog + Slider.
 - **2026-10-11** Datetimes: `UTCDateTime` TypeDecorator, since SQLite returned naive datetimes and the UI showed "5 h ago" in IST. Same column type underneath, so no migration.
 - **2026-10-11** Voice-level quality summary carries clip reasons up ("1 of 2 clips: …") so every rating has a reason (an "Okay" with no reason was showing).
+- **2026-10-11** Auto-transcription with **mlx-whisper large-v3-turbo** (1.6 GB) over small (0.48 GB, weaker Hindi) and faster-whisper (CPU-only on Mac). Runs in the main venv, loaded once. Measured: English clip transcribed perfectly in 4 s including first load; Hindi in 1.1 s with minor spelling slips → per-phrase correction UI.
+- **2026-10-11** Orb redesigned at Rahul's request ("feel like AI is happening"): rotating conic halo, drifting blobs inside the sphere, orbiting particles, travelling ray ring; voiceprint gets a ripple + slow rotation through every step. Both are still under reduced motion.
 - **2026-10-11** Worker engines set `HF_HUB_OFFLINE=1` once their weights are cached (offline requirement); XTTS skips its downloader when `model.pth` exists.
 
 ## Conventions
@@ -165,6 +169,9 @@ Single local user, no login. The threat is *other websites in the same browser* 
 - **Test sessions go stale** after `runner.run_one()` (the job used other sessions) → `session.expire_all()`.
 - **uvicorn --reload unloads the models** on every backend edit, so the next job reloads XTTS (~30 s). The generation job reports a `loading_model` step for this; don't mistake it for slowness.
 - **Playwright**: the system has no project-local Playwright; scripts borrow `~/Projects/career-ops/node_modules/playwright` via `createRequire`. Full-page phone screenshots draw the fixed tab bar mid-page (capture artefact).
+- **Motion + SVG rotate:** motion applies `transform-box: fill-box`, so `rotate` on an SVG child spins it around its own box. For radial layouts wrap each element in `<g transform="rotate(deg cx cy)">` (the orb's rays all stacked at the top before this).
+- **Migrations and the dev server:** `vaani-dev` migrates only at start; hot reloads don't. After adding a migration run `uv run vaani migrate`, or the running app hits missing columns.
+- **Tests must not run real Whisper:** conftest sets `VAANI_TRANSCRIBE_ON_CREATE=false`; tests monkeypatch `transcription.transcribe_file`. (Forgetting this made the suite take 4 min.)
 - **Vite build** warns that the bundle is over 500 kB (React + motion + Query). Harmless for a local app.
 - **IndicF5** pins `transformers<4.50`, `numpy<=1.26.4` and installs a module named `f5_tts`; coqui-tts 0.27.5 needs `transformers>=4.57`. **Separate venv** (`.venvs/indicf5`, Python 3.10). The model is gated on Hugging Face: Rahul must accept the terms and log in.
 - **F5-TTS MLX** needs a mono 24 kHz reference of about 5–10 s plus its transcript. Likely English-only.

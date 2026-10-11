@@ -99,6 +99,8 @@ export interface Sample {
   size_bytes: number;
   duration_seconds: number;
   transcript: string | null;
+  transcript_source: "user" | "whisper" | null;
+  transcript_segments: { start: number; end: number; text: string }[] | null;
   quality: QualityReport | null;
   has_audio: boolean;
 }
@@ -115,6 +117,7 @@ export interface Voice {
   quality_report: VoiceSummaryReport | null;
   speech_seconds: number;
   has_preview: boolean;
+  has_transcripts: boolean;
   sort_order: number;
   generation_count: number;
   created_at: string;
@@ -213,6 +216,10 @@ export const api = {
       signal,
     );
   },
+  transcribe: (voiceId: string, force = false) =>
+    request<{ job_id: string }>(`/voices/${voiceId}/transcribe${force ? "?force=true" : ""}`, { method: "POST" }),
+  correctTranscript: (voiceId: string, sampleId: string, texts: string[]) =>
+    request<VoiceDetail>(`/voices/${voiceId}/samples/${sampleId}/transcript`, json("PUT", { texts })),
   generations: (voiceId?: string) =>
     request<Generation[]>(`/generations${voiceId ? `?voice_id=${voiceId}` : ""}`),
   generation: (id: string) => request<GenerationDetail>(`/generations/${id}`),
@@ -232,6 +239,7 @@ export const api = {
 
 export const audioUrl = {
   preview: (voiceId: string) => `/api/v1/voices/${voiceId}/preview`,
+  sample: (voiceId: string, sampleId: string) => `/api/v1/voices/${voiceId}/samples/${sampleId}/audio`,
   generation: (id: string, format: "wav" | "mp3" = "wav", download = false) =>
     `/api/v1/generations/${id}/audio?format=${format}${download ? "&download=true" : ""}`,
 };

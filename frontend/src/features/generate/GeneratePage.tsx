@@ -1,7 +1,7 @@
 import * as Slider from "@radix-ui/react-slider";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "motion/react";
-import { Plus, WandSparkles } from "lucide-react";
+import { Plus, Sparkles, WandSparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { PageHeader } from "../../components/AppShell";
@@ -25,6 +25,34 @@ const readDraft = () => {
     return "";
   }
 };
+
+function TranscribeCallout({ voiceId, voiceName, engineLabel }: { voiceId: string; voiceName: string; engineLabel: string }) {
+  const [job, setJob] = useState<string | null>(null);
+  const qc = useQueryClient();
+  const toast = useToast();
+  const state = useJobEvents(job, (e) => {
+    if (e.status === "succeeded") void qc.invalidateQueries({ queryKey: ["voices"] });
+    if (e.status === "failed") toast({ tone: "error", title: "Transcription failed", body: e.error ?? undefined });
+  });
+  const working = Boolean(job) && !state.done;
+  return (
+    <div className="rounded-xl border border-okay/30 bg-okay/[0.06] p-3 text-xs">
+      <p className="text-muted">
+        {engineLabel} needs to know the exact words in one of {voiceName}’s clips. Vaani can transcribe them automatically.
+      </p>
+      <Button size="sm" className="mt-2" disabled={working}
+        onClick={async () => {
+          try {
+            setJob((await api.transcribe(voiceId)).job_id);
+          } catch (e) {
+            toast({ tone: "error", title: "Couldn’t start", body: e instanceof ApiError ? e.message : undefined });
+          }
+        }}>
+        <Sparkles size={13} /> {working ? state.latest?.message ?? "Transcribing…" : `Transcribe ${voiceName}’s clips`}
+      </Button>
+    </div>
+  );
+}
 
 export function GeneratePage() {
   const [params, setParams] = useSearchParams();
@@ -220,10 +248,14 @@ export function GeneratePage() {
               </div>
             </div>
             {engineInfo && !engineInfo.available && <p className="text-xs text-okay">{engineInfo.reason}</p>}
-            {engineInfo?.needs_transcript && engineInfo.available && (
-              <p className="text-xs text-muted">
-                {engineInfo.label} needs one clip of {engineInfo.max_ref_seconds ?? 12} seconds or less with its exact transcript on this voice. Add the transcript when you create the voice.
-              </p>
+            {engineInfo?.needs_transcript && engineInfo.available && voice && (
+              voice.has_transcripts ? (
+                <p className="text-xs text-muted">
+                  {engineInfo.label} copies the voice from a {engineInfo.max_ref_seconds ?? 12}-second transcribed clip. If it sounds off, check the words under Voices → Clips.
+                </p>
+              ) : (
+                <TranscribeCallout voiceId={voice.id} voiceName={voice.name} engineLabel={engineInfo.label} />
+              )
             )}
 
             <div>

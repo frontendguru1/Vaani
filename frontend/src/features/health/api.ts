@@ -12,6 +12,7 @@ export interface Health {
     mps_available: boolean;
     preferred: "mps" | "cpu";
   };
+  transcription?: { available: boolean; model: string; downloaded: boolean; on_create: boolean };
 }
 
 export const getHealth = () => request<Health>("/health");

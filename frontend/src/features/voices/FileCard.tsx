@@ -137,7 +137,7 @@ export function FileCard({ item, onReport, onRemove, onTranscript }: Props) {
                   onChange={(e) => onTranscript(item.key, e.target.value)}
                   rows={2}
                   className="field mt-1 text-sm"
-                  placeholder="Only needed for the F5 and IndicF5 engines"
+                  placeholder="Exact words, if you’d rather not rely on automatic transcription"
                 />
               </label>
             ) : (
@@ -146,7 +146,7 @@ export function FileCard({ item, onReport, onRemove, onTranscript }: Props) {
                 onClick={() => setShowTranscript(true)}
                 className="mt-2 text-xs text-violet-soft hover:underline"
               >
-                Add the transcript (for F5 / IndicF5)
+                Type what was said yourself (optional; it’s transcribed automatically)
               </button>
             )}
           </motion.div>

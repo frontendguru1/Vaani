@@ -15,7 +15,7 @@ from app.config import get_settings
 from app.engines import registry
 from app.engines.base import EngineError, VoiceProfile
 from app.models import Generation, Job, Voice, VoiceEngineProfile, VoiceSample
-from app.services import storage
+from app.services import audio, storage, transcription
 from app.services.errors import Invalid, NotFound
 from app.services.jobs import JobContext, get_runner, job_handler, on_job_failure
 from app.services.preprocessing import process_sample
@@ -143,6 +143,7 @@ def create_voice(
                     original_path=storage.rel(dst),
                     size_bytes=size,
                     transcript=(u.transcript or "").strip() or None,
+                    transcript_source="user" if (u.transcript or "").strip() else None,
                 )
             )
         session.commit()
@@ -279,14 +280,55 @@ def transcript_reference_or_none(session: Session, voice: Voice, max_seconds: fl
         return None
 
 
-def _transcript_reference(voice: Voice, max_seconds: float) -> tuple[Path, str]:
+@dataclass
+class TranscriptRef:
+    source: Path  # processed clip
+    start: float | None  # None = use the whole clip
+    end: float | None
+    text: str
+
+
+def _transcript_reference(voice: Voice, max_seconds: float) -> TranscriptRef:
+    """A short clip whose words are known exactly: a typed transcript for a short clip, or
+    the longest run of Whisper phrases that fits the engine's limit. Best clip first."""
     for s in sorted(voice.samples, key=lambda x: -(x.quality or {}).get("score", 0)):
-        if s.transcript and s.processed_path and s.duration_seconds <= max_seconds + 0.5:
-            return storage.resolve(s.processed_path), s.transcript
+        if not s.processed_path:
+            continue
+        if (
+            s.transcript_source == "user"
+            and s.transcript
+            and s.duration_seconds <= max_seconds + 0.5
+        ):
+            return TranscriptRef(storage.resolve(s.processed_path), None, None, s.transcript)
+        window = transcription.best_window(s.transcript_segments or [], max_seconds)
+        if window:
+            return TranscriptRef(storage.resolve(s.processed_path), *window)
     raise EngineError(
         f"This engine needs a clip of at most {max_seconds:.0f}s with its exact transcript. "
-        "Add a short recording and type what was said."
+        "Transcribe this voice's clips first (Voices → Clips → Transcribe)."
     )
+
+
+def _cut(ref: TranscriptRef, dst: Path) -> Path:
+    if ref.start is None:
+        return ref.source
+    data, sr = audio.read_mono(ref.source)
+    a = max(0, int((ref.start - 0.05) * sr))
+    b = min(len(data), int((ref.end + 0.15) * sr))
+    return audio.write_wav(dst, data[a:b], sr)
+
+
+def invalidate_transcript_profiles(session: Session, voice_id: str) -> int:
+    """Transcripts changed → F5/IndicF5 voiceprints (built from a transcribed clip) are stale."""
+    removed = 0
+    for row in session.scalars(
+        select(VoiceEngineProfile).where(VoiceEngineProfile.voice_id == voice_id)
+    ):
+        if registry.get_engine(row.engine).needs_transcript:
+            storage.remove_tree(storage.resolve(row.cache_dir))
+            session.delete(row)
+            removed += 1
+    return removed
 
 
 def ensure_profile(
@@ -322,8 +364,10 @@ def ensure_profile(
     cache = storage.engine_cache_dir(voice.id, engine_name)
     storage.remove_tree(cache)
     if engine.needs_transcript:
-        ref, text = _transcript_reference(voice, getattr(engine, "max_ref_seconds", 12.0))
-        profile = engine.create_voice([ref], cache, [text])
+        ref = _transcript_reference(voice, getattr(engine, "max_ref_seconds", 12.0))
+        cache.mkdir(parents=True, exist_ok=True)
+        clip = _cut(ref, cache / "ref_src.wav")
+        profile = engine.create_voice([clip], cache, [ref.text])
     else:
         refs = _reference_segments(voice, XTTS_REF_BUDGET)
         if not refs:
@@ -344,6 +388,79 @@ def ensure_profile(
 # ---------------------------------------------------------------------------
 # Background job: process a new voice
 # ---------------------------------------------------------------------------
+
+
+def transcribe_samples(
+    session: Session,
+    voice: Voice,
+    ctx: JobContext | None,
+    progress_range: tuple[float, float],
+    *,
+    force: bool = False,
+) -> int:
+    """Fill in Whisper phrases (and the transcript, unless the user typed one) per clip."""
+    lo, hi = progress_range
+    todo = [s for s in voice.samples if s.processed_path and (force or not s.transcript_segments)]
+    for i, smp in enumerate(todo):
+        if ctx:
+            ctx.progress(
+                lo + (hi - lo) * i / max(1, len(todo)),
+                "transcribing",
+                f"Transcribing {smp.original_filename} ({i + 1}/{len(todo)})…",
+            )
+        phrases = transcription.transcribe_file(storage.resolve(smp.processed_path), voice.language)
+        smp.transcript_segments = [p.to_dict() for p in phrases]
+        if smp.transcript_source != "user":
+            smp.transcript = " ".join(p.text for p in phrases) or None
+            smp.transcript_source = "whisper" if phrases else None
+        session.commit()
+    if todo:
+        invalidate_transcript_profiles(session, voice.id)
+        session.commit()
+    return len(todo)
+
+
+def start_transcription(session: Session, voice_id: str, force: bool = False) -> Job:
+    voice = _get(session, voice_id)
+    if voice.status != "ready":
+        raise Invalid("Wait until the voice is ready.", code="voice_not_ready")
+    if not transcription.is_installed():
+        raise Invalid("Transcription isn't installed (mlx-whisper).", code="no_transcriber")
+    return get_runner().submit(
+        session, "transcribe_voice", {"voice_id": voice_id, "force": force}, voice_id=voice_id
+    )
+
+
+def update_segments(
+    session: Session, voice_id: str, sample_id: str, texts: list[str]
+) -> VoiceSample:
+    """Correct what Whisper heard, phrase by phrase (timestamps stay)."""
+    voice = _get(session, voice_id)
+    smp = next((s for s in voice.samples if s.id == sample_id), None)
+    if smp is None:
+        raise NotFound("Clip not found", code="sample_not_found")
+    segs = list(smp.transcript_segments or [])
+    if len(texts) != len(segs):
+        raise Invalid("Send one text per phrase.", code="segment_count")
+    smp.transcript_segments = [
+        {**seg, "text": t.strip()} for seg, t in zip(segs, texts, strict=True)
+    ]
+    smp.transcript = " ".join(t.strip() for t in texts if t.strip()) or None
+    smp.transcript_source = "user"
+    invalidate_transcript_profiles(session, voice_id)
+    session.commit()
+    return smp
+
+
+@job_handler("transcribe_voice")
+def run_transcribe_voice(ctx: JobContext, payload: dict[str, Any]) -> dict[str, Any]:
+    with ctx.session() as s:
+        voice = _get(s, payload["voice_id"])
+        if not transcription.is_downloaded():
+            ctx.progress(0.02, "loading_model", "Downloading the transcription model (1.6 GB)…")
+        n = transcribe_samples(s, voice, ctx, (0.05, 0.98), force=bool(payload.get("force")))
+        ctx.progress(1.0, "done", f"Transcribed {n} clip(s)")
+        return {"voice_id": voice.id, "transcribed": n}
 
 
 @job_handler("create_voice")
@@ -418,13 +535,22 @@ def run_create_voice(ctx: JobContext, payload: dict[str, Any]) -> dict[str, Any]
         if not any(smp.segments for smp in samples):
             raise EngineError("No speech was found in these recordings.")
 
-        # 3. voiceprint for the default engine (0.6 → 0.95). If the engine isn't
+        # 3. transcription (0.6 → 0.7): optional; never fails the voice.
+        settings = get_settings()
+        if settings.transcribe_on_create and transcription.is_installed():
+            try:
+                transcribe_samples(s, voice, ctx, (0.6, 0.7))
+            except Exception as exc:  # noqa: BLE001
+                log.warning("transcription failed for voice %s: %s", voice_id, exc)
+                ctx.progress(0.7, "transcribing", "Couldn't transcribe — you can retry later")
+
+        # 4. voiceprint for the default engine (0.7 → 0.95). If the engine isn't
         #    available the voice is still usable; the voiceprint is built on first generation.
-        engine_name = get_settings().default_engine
+        engine_name = settings.default_engine
         voiceprint = "skipped"
         engine = registry.get_engine(engine_name)
         if engine.availability().ok:
-            _profile, fresh = ensure_profile(s, voice, engine_name, ctx, (0.6, 0.95))
+            _profile, fresh = ensure_profile(s, voice, engine_name, ctx, (0.7, 0.95))
             voiceprint = "computed" if fresh else "cached"
         ctx.progress(0.97, "saving", "Saving…")
         voice.status, voice.error = "ready", None
