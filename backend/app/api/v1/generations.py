@@ -22,8 +22,9 @@ def _names(session: Session) -> dict[str, str]:
 
 
 def _out(gen, names: dict[str, str]) -> GenerationOut:
+    speakers = [names.get(v, "Deleted voice") for v in (gen.settings or {}).get("speakers", [])]
     return GenerationOut.model_validate(gen).model_copy(
-        update={"voice_name": names.get(gen.voice_id)}
+        update={"voice_name": names.get(gen.voice_id), "speakers": speakers}
     )
 
 

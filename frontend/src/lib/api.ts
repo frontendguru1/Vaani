@@ -146,6 +146,7 @@ export interface Engine {
 export interface Chunk {
   idx: number;
   text: string;
+  voice_id: string | null;
   spoken_text: string | null;
   char_start: number;
   char_end: number;
@@ -160,6 +161,7 @@ export interface Generation {
   id: string;
   voice_id: string;
   voice_name: string | null;
+  speakers: string[];
   engine: string;
   engine_version: string | null;
   language: string;

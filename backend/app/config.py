@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     f5mlx_quant: Literal[4, 8] | None = None
     pause_sentence_ms: int = 350
     pause_paragraph_ms: int = 800
+    pause_turn_ms: int = 500  # between speakers in a dialogue
     features: set[str] = set()
     host: str = "127.0.0.1"
     port: int = 8000

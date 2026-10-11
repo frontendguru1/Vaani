@@ -8,11 +8,15 @@ interface Props {
   highlight: [number, number] | null;
   readOnly?: boolean;
   color: string;
+  /** Extra spans to draw as chips, e.g. dialogue speaker tags (color null = problem). */
+  decorations?: { start: number; end: number; color: string | null }[];
 }
 
 export interface ScriptEditorHandle {
   /** Insert text at the caret (or replace the selection) and keep focus. */
   insert: (text: string) => void;
+  /** Start a new line at the caret's line end and insert text there (for speaker tags). */
+  insertLine: (text: string) => void;
 }
 
 /**
@@ -22,14 +26,38 @@ export interface ScriptEditorHandle {
  * scrolls with the textarea.
  */
 export const ScriptEditor = forwardRef<ScriptEditorHandle, Props>(function ScriptEditor(
-  { value, onChange, highlight, readOnly, color },
+  { value, onChange, highlight, readOnly, color, decorations = [] },
   ref,
 ) {
   const area = useRef<HTMLTextAreaElement>(null);
   const backdrop = useRef<HTMLDivElement>(null);
   const mark = useRef<HTMLElement>(null);
+  // Caret to restore after an insert. Applied in a layout effect, i.e. synchronously right
+  // after React commits the new text and before any further keystrokes are handled — a
+  // requestAnimationFrame here let fast typing land in the wrong place.
+  const pendingCaret = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const a = area.current;
+    if (a && pendingCaret.current != null) {
+      a.focus();
+      a.setSelectionRange(pendingCaret.current, pendingCaret.current);
+      pendingCaret.current = null;
+    }
+  }, [value]);
 
   useImperativeHandle(ref, () => ({
+    insertLine(text: string) {
+      const a = area.current;
+      if (!a) return;
+      const caret = a.selectionEnd ?? value.length;
+      const lineEnd = value.indexOf("\n", caret);
+      const at = lineEnd === -1 ? value.length : lineEnd;
+      const before = value.slice(0, at);
+      const prefix = before.trim() ? "\n" : "";
+      const next = before + prefix + text + value.slice(at);
+      pendingCaret.current = (before + prefix + text).length;
+      onChange(next);
+    },
     insert(text: string) {
       const a = area.current;
       if (!a) return;
@@ -40,12 +68,8 @@ export const ScriptEditor = forwardRef<ScriptEditorHandle, Props>(function Scrip
       const after = value.slice(end);
       const tail = after && !/^\s/.test(after) ? " " : "";
       const next = before + pad + text + tail + after;
+      pendingCaret.current = (before + pad + text + tail).length;
       onChange(next);
-      const caret = (before + pad + text + tail).length;
-      requestAnimationFrame(() => {
-        a.focus();
-        a.setSelectionRange(caret, caret);
-      });
     },
   }));
 
@@ -63,6 +87,7 @@ export const ScriptEditor = forwardRef<ScriptEditorHandle, Props>(function Scrip
   const cuts = new Set<number>([0, value.length]);
   const pauses = findPauses(value);
   pauses.forEach((p) => { cuts.add(p.start); cuts.add(p.end); });
+  decorations.forEach((d) => { cuts.add(d.start); cuts.add(d.end); });
   if (highlight) { cuts.add(highlight[0]); cuts.add(highlight[1]); }
   const points = [...cuts].filter((n) => n >= 0 && n <= value.length).sort((a, b) => a - b);
   const pieces: ReactNode[] = [];
@@ -72,8 +97,17 @@ export const ScriptEditor = forwardRef<ScriptEditorHandle, Props>(function Scrip
     if (a === b) continue;
     const text = value.slice(a, b);
     const pause = pauses.find((p) => a >= p.start && b <= p.end);
+    const deco = decorations.find((d) => a >= d.start && b <= d.end);
     const lit = highlight && a >= highlight[0] && b <= highlight[1];
-    if (pause) {
+    if (deco) {
+      const c = deco.color;
+      pieces.push(
+        <span key={a} className="rounded-md text-transparent"
+          style={{ background: c ? `color-mix(in oklch, ${c} 24%, transparent)` : "rgb(248 113 113 / .22)", boxShadow: `0 0 0 1px ${c ? `color-mix(in oklch, ${c} 55%, transparent)` : "rgb(248 113 113 / .5)"}` }}>
+          {text}
+        </span>,
+      );
+    } else if (pause) {
       pieces.push(
         <span key={a} className="rounded-md text-transparent"
           style={{ background: pause.ms == null ? "rgb(248 113 113 / .22)" : "rgb(34 211 238 / .16)", boxShadow: `0 0 0 1px ${pause.ms == null ? "rgb(248 113 113 / .5)" : "rgb(34 211 238 / .35)"}` }}>
@@ -108,7 +142,7 @@ export const ScriptEditor = forwardRef<ScriptEditorHandle, Props>(function Scrip
         }}
         readOnly={readOnly}
         aria-label="Script"
-        placeholder={"Type or paste what the voice should say.\n\nHindi, English or a mix both work, e.g. आज की meeting बहुत अच्छी रही।\nAdd [pause 1s] anywhere for a longer break."}
+        placeholder={"Type or paste what the voice should say.\n\nHindi, English or a mix both work, e.g. आज की meeting बहुत अच्छी रही।\nAdd [pause 1s] anywhere for a longer break.\nFor a dialogue, start lines with a voice name: [Papa]: …"}
         className={`${shared} relative block h-[38dvh] min-h-52 w-full resize-none rounded-2xl border border-line bg-transparent text-ink outline-none placeholder:text-faint focus-visible:border-[var(--color-violet-soft)] focus-visible:shadow-[0_0_0_3px_rgb(167_139_250/0.25)] lg:h-[min(56dvh,520px)] lg:min-h-64 ${readOnly ? "cursor-default" : ""}`}
       />
     </div>

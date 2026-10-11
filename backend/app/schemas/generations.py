@@ -24,6 +24,7 @@ class ChunkOut(BaseModel):
 
     idx: int
     text: str
+    voice_id: str | None = None  # speaker, in a dialogue (None = the generation's voice)
     spoken_text: str | None = None
     char_start: int
     char_end: int
@@ -40,6 +41,7 @@ class GenerationOut(BaseModel):
     id: str
     voice_id: str
     voice_name: str | None = None
+    speakers: list[str] = []  # names of everyone who speaks, for dialogues
     engine: str
     engine_version: str | None
     language: str

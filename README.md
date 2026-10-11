@@ -23,11 +23,12 @@ A personal voice-cloning studio that runs **entirely on your own Mac**. Give it 
 - Generate speech from long scripts, with natural pauses and live progress
 - Generation history with replay, regenerate and download (WAV/MP3)
 - Pause markers in scripts: `[pause 1s]`, `[pause 500ms]`, `[pause 2]` (seconds) or just `[pause]` (1 second), up to 10 seconds each. They show as chips in the editor and can be inserted with one click
+- Multi-voice dialogue: start lines with a voice name, `[Papa]: …` / `[Meera]: …`, and get one recording with everyone speaking. Speaker tags show in each voice's colour, and the orb and highlight follow whoever is speaking
 - A pronunciation dictionary for names and acronyms ("Vaani → Vaa-nee", "IIT → I I T"), with a live preview of what the voice will be given
 - Automatic transcription of every clip (Whisper, on the Apple GPU), with a Clips view to check and correct what was heard
 - A dark, animated interface that respects reduced-motion settings
 
-**Later:** speaking-style variants, multi-voice dialogue, batch generation, subtitle export, and side-by-side engine comparison.
+**Later:** speaking-style variants, batch generation, subtitle export, and side-by-side engine comparison.
 
 ## Prerequisites
 
@@ -158,7 +159,7 @@ All settings go in `.env` at the repo root. `.env.example` lists every option wi
 | `VAANI_F5MLX_QUANT` | empty (full) | `8` or `4` for smaller, slightly lower-quality F5 weights |
 | `VAANI_TRANSCRIBE_MODEL` | `mlx-community/whisper-large-v3-turbo` | Whisper model; `mlx-community/whisper-small-mlx` is 0.48 GB but weaker at Hindi |
 | `VAANI_TRANSCRIBE_ON_CREATE` | `true` | Transcribe clips automatically when a voice is created |
-| `VAANI_PAUSE_SENTENCE_MS` / `_PARAGRAPH_MS` | 350 / 800 | Pauses between generated sentences and paragraphs |
+| `VAANI_PAUSE_SENTENCE_MS` / `_PARAGRAPH_MS` / `_TURN_MS` | 350 / 800 / 500 | Pauses between sentences, paragraphs, and speakers in a dialogue |
 | `VAANI_MAX_UPLOAD_MB` | 1024 | Largest upload per request (each file is also capped at 200 MB) |
 | `VAANI_HOST` / `VAANI_PORT` | 127.0.0.1 / 8000 | Where the backend listens. Keep it on this machine. |
 
@@ -205,7 +206,7 @@ Which engines Vaani ships with depends on a listening test in Phase 1. **Vaani i
 - Everything stays on this computer. Vaani makes no network calls except the one-time model downloads.
 - All recordings, voices and generated audio live in `data/`, which is excluded from git.
 - Only clone a voice when that person has agreed, or when it's your own. Vaani asks for a consent note for each voice and refuses to generate without one.
-- Deleting a voice permanently removes its recordings, cached voice data, generated audio and database records. `uv run vaani check` confirms nothing was left behind.
+- Deleting a voice permanently removes its recordings, cached voice data, generated audio (including any dialogue it spoke in) and database records. `uv run vaani check` confirms nothing was left behind.
 - Vaani only answers requests addressed to `localhost`/`127.0.0.1`, and refuses uploads or deletions coming from other websites, so a page open in another browser tab can't reach your recordings.
 
 ## Troubleshooting
@@ -225,5 +226,5 @@ Which engines Vaani ships with depends on a listening test in Phase 1. **Vaani i
 1. 🎧 Quality spike: the benchmark is built; the listening test on a real voice is still to do
 2. ✅ Backend core: voices, cleanup, quality checks, generation, history
 3. ✅ Frontend: voice library, recording, generation studio, history
-4. 🚧 Polish and extras: auto-transcription, pronunciation dictionary and pause markers done
+4. 🚧 Polish and extras: auto-transcription, pronunciation dictionary, pause markers and dialogue done
 5. Notes on fine-tuning (documentation only)

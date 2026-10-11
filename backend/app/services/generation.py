@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -14,8 +15,8 @@ from sqlalchemy.orm import Session, selectinload
 from app.config import get_settings
 from app.engines import registry
 from app.models import Generation, GenerationChunk, Job, Voice
-from app.services import audio, pronunciation, storage
-from app.services.chunking import PauseMarkerError, chunk_script
+from app.services import audio, dialogue, pronunciation, storage
+from app.services.chunking import Chunk, PauseMarkerError, chunk_script
 from app.services.errors import Invalid, NotFound
 from app.services.jobs import JobContext, get_runner, job_handler, on_job_failure
 from app.services.stitching import stitch
@@ -33,9 +34,84 @@ def _clean_settings(settings: dict[str, Any] | None) -> dict[str, Any]:
         if key in ALLOWED_SETTINGS and value is not None:
             lo, hi = ALLOWED_SETTINGS[key]
             out[key] = min(hi, max(lo, float(value)))
-        elif key in ("sentence_pause_ms", "paragraph_pause_ms") and value is not None:
+        elif (
+            key in ("sentence_pause_ms", "paragraph_pause_ms", "turn_pause_ms")
+            and value is not None
+        ):
             out[key] = int(min(5000, max(0, int(value))))
     return out
+
+
+def _check_voice(session: Session, voice: Voice, eng) -> None:  # noqa: ANN001
+    if not (voice.consent_note or "").strip():
+        raise Invalid(
+            f"{voice.name} has no consent note, so it can't be used for generation.",
+            code="consent_required",
+        )
+    if voice.status != "ready":
+        raise Invalid(
+            f"{voice.name} is {voice.status}; wait until it's ready.", code="voice_not_ready"
+        )
+    if eng.needs_transcript:
+        # Fail now with a clear message instead of after the job starts.
+        from app.services.voices import transcript_reference_or_none
+
+        limit = getattr(eng, "max_ref_seconds", 12.0)
+        if transcript_reference_or_none(session, voice, limit) is None:
+            raise Invalid(
+                f"{eng.label} needs one clip of {limit:.0f} seconds or less with its exact "
+                f"transcript, and {voice.name} doesn't have one yet. Use XTTS-v2, or "
+                "transcribe the voice's clips (Voices → Clips).",
+                code="needs_transcript",
+            )
+
+
+def _plan(
+    script: str,
+    turns: list[dialogue.Turn],
+    *,
+    max_chars: int,
+    sentence_ms: int,
+    paragraph_ms: int,
+    turn_ms: int,
+) -> tuple[list[tuple[Chunk, str]], int]:
+    """Chunk every turn, keeping spans in script coordinates. Returns ([(chunk, voice_id)],
+    lead_ms). A pause marker at the start of a turn replaces the usual turn pause."""
+    out: list[tuple[Chunk, str]] = []
+    lead_ms = 0
+    for turn in turns:
+        try:
+            plan = chunk_script(
+                script[turn.start : turn.end],
+                max_chars=max_chars,
+                sentence_pause_ms=sentence_ms,
+                paragraph_pause_ms=paragraph_ms,
+            )
+        except PauseMarkerError as exc:
+            raise Invalid(
+                f"Couldn’t read the pause {exc}. Write it like [pause 1s], [pause 1.5s] or "
+                "[pause 500ms].",
+                code="bad_pause",
+            ) from exc
+        if not plan.chunks:
+            continue
+        gap = plan.lead_ms or turn_ms
+        if out:
+            prev, vid = out[-1]
+            out[-1] = (replace(prev, pause_after_ms=gap), vid)
+        else:
+            lead_ms = plan.lead_ms
+        for c in plan.chunks:
+            out.append(
+                (
+                    replace(c, index=len(out), start=c.start + turn.start, end=c.end + turn.start),
+                    turn.voice_id,
+                )
+            )
+    if out:
+        last, vid = out[-1]
+        out[-1] = (replace(last, pause_after_ms=0), vid)
+    return out, lead_ms
 
 
 def create_generation(
@@ -50,13 +126,6 @@ def create_generation(
     voice = session.get(Voice, voice_id)
     if voice is None:
         raise NotFound("Voice not found", code="voice_not_found")
-    if not (voice.consent_note or "").strip():
-        raise Invalid(
-            "This voice has no consent note, so it can't be used for generation.",
-            code="consent_required",
-        )
-    if voice.status != "ready":
-        raise Invalid(f"Voice is {voice.status}; wait until it's ready.", code="voice_not_ready")
     script = script.strip()
     if not script:
         raise Invalid("Type or paste a script first.", code="empty_script")
@@ -75,39 +144,37 @@ def create_generation(
     if language not in eng.supported_languages:
         raise Invalid(f"{eng.label} doesn't support '{language}'.", code="language_unsupported")
 
-    if eng.needs_transcript:
-        # Fail now with a clear message instead of after the job starts.
-        from app.services.voices import transcript_reference_or_none
-
-        limit = getattr(eng, "max_ref_seconds", 12.0)
-        if transcript_reference_or_none(session, voice, limit) is None:
-            raise Invalid(
-                f"{eng.label} needs one clip of {limit:.0f} seconds or less with its exact "
-                f"transcript, and {voice.name} doesn't have one yet. Use XTTS-v2, or create a "
-                "voice that includes a short clip with its transcript.",
-                code="needs_transcript",
-            )
+    # Speakers: the selected voice, plus any voice named in [Name]: tags.
+    if dialogue.is_dialogue(script):
+        names = dict(session.execute(select(Voice.id, Voice.name)).all())
+        try:
+            turns = dialogue.parse_turns(script, voice_id, names)
+        except dialogue.DialogueError as exc:
+            raise Invalid(str(exc), code=exc.code) from exc
+    else:
+        turns = [dialogue.Turn(voice_id, 0, len(script))]
+    speaker_ids = list(dict.fromkeys(t.voice_id for t in turns))
+    for vid in speaker_ids:
+        _check_voice(session, session.get(Voice, vid), eng)
 
     clean = _clean_settings(settings)
     cfg = get_settings()
-    try:
-        plan = chunk_script(
-            script,
-            max_chars=eng.max_chunk_chars(language),
-            sentence_pause_ms=clean.get("sentence_pause_ms", cfg.pause_sentence_ms),
-            paragraph_pause_ms=clean.get("paragraph_pause_ms", cfg.pause_paragraph_ms),
-        )
-    except PauseMarkerError as exc:
+    planned, lead_ms = _plan(
+        script,
+        turns,
+        max_chars=eng.max_chunk_chars(language),
+        sentence_ms=clean.get("sentence_pause_ms", cfg.pause_sentence_ms),
+        paragraph_ms=clean.get("paragraph_pause_ms", cfg.pause_paragraph_ms),
+        turn_ms=clean.get("turn_pause_ms", cfg.pause_turn_ms),
+    )
+    if not planned:
         raise Invalid(
-            f"Couldn’t read the pause {exc}. Write it like [pause 1s], [pause 1.5s] or "
-            "[pause 500ms].",
-            code="bad_pause",
-        ) from exc
-    chunks = plan.chunks
-    if not chunks:
-        raise Invalid("There’s nothing to say: the script only has pauses.", code="empty_script")
-    if plan.lead_ms:
-        clean["lead_pause_ms"] = plan.lead_ms  # silence before the first sentence
+            "There’s nothing to say: the script only has pauses or tags.", code="empty_script"
+        )
+    if lead_ms:
+        clean["lead_pause_ms"] = lead_ms  # silence before the first sentence
+    if len(speaker_ids) > 1 or speaker_ids[0] != voice_id:
+        clean["speakers"] = speaker_ids
     gen = Generation(
         voice_id=voice_id,
         engine=engine_name,
@@ -115,18 +182,19 @@ def create_generation(
         script=script,
         settings=clean,
         status="queued",
-        chunk_count=len(chunks),
+        chunk_count=len(planned),
     )
     session.add(gen)
     session.flush()
     entries = pronunciation.list_entries(session)
-    for c in chunks:
+    for c, vid in planned:
         spoken, applied = pronunciation.apply(c.text, language, entries)
         session.add(
             GenerationChunk(
                 generation_id=gen.id,
                 idx=c.index,
                 text=c.text,
+                voice_id=vid if vid != voice_id else None,
                 spoken_text=spoken if applied else None,
                 char_start=c.start,
                 char_end=c.end,
@@ -214,9 +282,21 @@ def run_generation(ctx: JobContext, payload: dict[str, Any]) -> dict[str, Any]:
         (out_dir / "chunks").mkdir(parents=True, exist_ok=True)
         t_start = time.perf_counter()
 
-        # Voiceprint: cached after the first time (that's what makes repeats faster).
+        # Voiceprints (one per speaker): cached after the first time, which is what makes
+        # repeat generations faster.
+        speaker_ids = gen.settings.get("speakers") or [gen.voice_id]
+        profiles: dict[str, Any] = {}
+        names: dict[str, str] = {}
+        fresh = False
         ctx.progress(0.01, "voiceprint", "Preparing voice…")
-        profile, fresh = ensure_profile(s, voice, gen.engine, ctx, (0.01, 0.08))
+        for k, vid in enumerate(speaker_ids):
+            v = s.get(Voice, vid)
+            if v is None:
+                raise NotFound("A voice in this dialogue was deleted")
+            span = (0.01 + 0.07 * k / len(speaker_ids), 0.01 + 0.07 * (k + 1) / len(speaker_ids))
+            profiles[vid], was_fresh = ensure_profile(s, v, gen.engine, ctx, span)
+            names[vid] = v.name
+            fresh = fresh or was_fresh
         ctx.progress(
             0.08,
             "voiceprint",
@@ -235,19 +315,24 @@ def run_generation(ctx: JobContext, payload: dict[str, Any]) -> dict[str, Any]:
         n = len(chunks)
         arrays, sr = [], engine.sample_rate
         opts = {k: v for k, v in gen.settings.items() if k in ("speed", "temperature")}
+        dialogue_mode = len(profiles) > 1 or gen.voice_id not in profiles
         for i, ch in enumerate(chunks):
+            speaker = ch.voice_id or gen.voice_id
             ctx.progress(
                 0.08 + 0.88 * i / n,
                 "synthesizing",
-                f"Sentence {i + 1} of {n}",
+                f"Sentence {i + 1} of {n}" + (f", {names[speaker]}" if dialogue_mode else ""),
                 event="chunk_started",
                 index=i,
                 start=ch.char_start,
                 end=ch.char_end,
                 total=n,
+                voice_id=speaker,
             )
             t0 = time.perf_counter()
-            res = engine.synthesize(ch.spoken_text or ch.text, profile, gen.language, **opts)
+            res = engine.synthesize(
+                ch.spoken_text or ch.text, profiles[speaker], gen.language, **opts
+            )
             compute = time.perf_counter() - t0
             sr = res.sample_rate
             path = out_dir / "chunks" / f"{i:03d}.wav"

@@ -1,7 +1,7 @@
 import * as Slider from "@radix-ui/react-slider";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "motion/react";
-import { Plus, Sparkles, Timer, WandSparkles } from "lucide-react";
+import { MessagesSquare, Plus, Sparkles, Timer, WandSparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { PageHeader } from "../../components/AppShell";
@@ -17,6 +17,7 @@ import { voiceColors } from "../../lib/voiceColor";
 import { spring, variants } from "../../motion/tokens";
 import { ScriptEditor, type ScriptEditorHandle } from "./ScriptEditor";
 import { findPauses, pauseLabel } from "../../lib/pauses";
+import { findSpeakerTags } from "../../lib/dialogue";
 import { AppliedChips } from "../pronunciation/PronunciationPage";
 import { useDebounced } from "../../lib/useDebounced";
 
@@ -71,7 +72,8 @@ export function GeneratePage() {
   const [script, setScript] = useState(readDraft);
   const [job, setJob] = useState<string | null>(null);
   const [gen, setGen] = useState<GenerationDetail | null>(null);
-  const [current, setCurrent] = useState<{ index: number; span: [number, number]; total: number } | null>(null);
+  const [current, setCurrent] = useState<{ index: number; span: [number, number]; total: number; voiceId?: string } | null>(null);
+  const [playVoice, setPlayVoice] = useState<string | null>(null);
   const [playSpan, setPlaySpan] = useState<[number, number] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const toast = useToast();
@@ -102,8 +104,8 @@ export function GeneratePage() {
   const onEvent = useCallback(
     (e: JobEvent) => {
       if (e.type === "chunk_started") {
-        const d = e.data as { index: number; start: number; end: number; total: number };
-        setCurrent({ index: d.index, span: [d.start, d.end], total: d.total });
+        const d = e.data as { index: number; start: number; end: number; total: number; voice_id?: string };
+        setCurrent({ index: d.index, span: [d.start, d.end], total: d.total, voiceId: d.voice_id });
       }
       if (e.status === "succeeded" && e.generation_id) {
         void api.generation(e.generation_id).then(setGen);
@@ -140,13 +142,34 @@ export function GeneratePage() {
     const fallback = engines.data.find((e) => e.available && e.languages.includes(language));
     if (fallback) setEngine(fallback.name);
   }, [language, engineInfo, engines.data]);
-  const colors = voiceColors(voice?.id);
+  // Dialogue: speaker tags at line starts, matched to voice names (any status, so a
+  // not-ready voice is reported rather than "unknown").
+  const allVoices = useMemo(() => voices.data ?? [], [voices.data]);
+  const readyIds = useMemo(() => new Set(ready.map((v) => v.id)), [ready]);
+  const tags = useMemo(() => findSpeakerTags(script, allVoices), [script, allVoices]);
+  const unknownTags = tags.filter((t) => !t.voiceId || !readyIds.has(t.voiceId));
+  const speakerIds = useMemo(() => {
+    const ids: string[] = [];
+    if (tags.length && script.slice(0, tags[0].start).trim() && voice) ids.push(voice.id);
+    for (const t of tags) if (t.voiceId && !ids.includes(t.voiceId)) ids.push(t.voiceId);
+    return ids;
+  }, [tags, script, voice]);
+  const decorations = tags.map((t) => ({
+    start: t.start,
+    end: t.end,
+    color: t.voiceId && readyIds.has(t.voiceId) ? voiceColors(t.voiceId).solid : null,
+  }));
+  const nameOf = (id: string) => allVoices.find((v) => v.id === id)?.name ?? "?";
+  // The orb and highlight take the colour of whoever is speaking right now.
+  const speakingId = working ? (current?.voiceId ?? voice?.id) : (playVoice ?? voice?.id);
+  const colors = voiceColors(speakingId);
   const chars = script.trim().length;
 
   const generate = async () => {
     setError(null);
     if (!voice) return setError("Pick a voice first.");
     if (!chars) return setError("Type or paste a script first.");
+    if (unknownTags.length) return setError(`No ready voice called ${unknownTags.map((t) => t.name).join(", ")}. Speaker tags must match a voice name.`);
     if (badPauses.length) return setError(`Can’t read ${badPauses[0].raw}. Write it like [pause 1s] or [pause 500ms].`);
     setGen(null);
     setPlaySpan(null);
@@ -185,7 +208,7 @@ export function GeneratePage() {
   const progress = working ? (ev?.progress ?? 0) : gen ? 1 : null;
   const statusText = working
     ? current
-      ? `Speaking sentence ${current.index + 1} of ${current.total}`
+      ? `Speaking sentence ${current.index + 1} of ${current.total}${speakerIds.length > 1 && current.voiceId ? `, ${nameOf(current.voiceId)}` : ""}`
       : ev?.message ?? "Starting…"
     : gen
       ? `${formatTime(gen.duration_seconds)} of audio in ${gen.compute_seconds?.toFixed(1)}s`
@@ -200,7 +223,7 @@ export function GeneratePage() {
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
         {/* Script */}
         <section className="glass p-3 sm:p-4" aria-label="Script editor">
-          <ScriptEditor ref={editor} value={script} onChange={setScript} highlight={highlight} readOnly={working} color={colors.solid} />
+          <ScriptEditor ref={editor} value={script} onChange={setScript} highlight={highlight} readOnly={working} color={colors.solid} decorations={decorations} />
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-2 pt-3 text-xs text-faint">
             <span className="font-mono">{chars.toLocaleString()} / 20,000</span>
             <div className="flex items-center gap-1" role="group" aria-label="Insert a pause">
@@ -224,6 +247,37 @@ export function GeneratePage() {
               )}
             </span>
           </div>
+          {ready.length > 1 && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-2 pt-3 text-xs text-faint">
+              <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Add a line for a speaker">
+                <MessagesSquare size={13} aria-hidden />
+                <span className="mr-1">Add a line for</span>
+                {ready.map((v) => (
+                  <button key={v.id} type="button" disabled={working} onClick={() => editor.current?.insertLine(`[${v.name}]: `)}
+                    className="flex items-center gap-1.5 rounded-full border border-line py-0.5 pr-2.5 pl-1 text-[11px] text-muted transition-colors hover:text-ink disabled:opacity-40"
+                    style={{ borderColor: voiceColors(v.id).soft }}>
+                    <span className="size-3 rounded-full" style={{ background: voiceColors(v.id).gradient }} />
+                    {v.name}
+                  </button>
+                ))}
+              </div>
+              <span className="ml-auto" aria-live="polite">
+                {unknownTags.length > 0 ? (
+                  <span className="text-poor">No ready voice called {[...new Set(unknownTags.map((t) => t.name))].join(", ")}.</span>
+                ) : speakerIds.length > 1 ? (
+                  <span className="flex items-center gap-1.5">
+                    Dialogue:
+                    {speakerIds.map((id) => (
+                      <span key={id} className="flex items-center gap-1 text-muted">
+                        <span className="size-2 rounded-full" style={{ background: voiceColors(id).solid }} />
+                        {nameOf(id)}
+                      </span>
+                    ))}
+                  </span>
+                ) : null}
+              </span>
+            </div>
+          )}
           {pron.data && pron.data.applied.length > 0 && script.trim() && (
             <div className="flex flex-wrap items-center gap-2 px-2 pt-3">
               <Link to="/pronunciation" className="text-xs text-faint hover:text-ink">Pronunciation fixes:</Link>
@@ -362,6 +416,7 @@ export function GeneratePage() {
               onTime={(t) => {
                 const c = [...gen.chunks].reverse().find((ch) => (ch.offset_seconds ?? 0) <= t + 0.05);
                 setPlaySpan(c && t > 0 ? [c.char_start, c.char_end] : null);
+                setPlayVoice(c && t > 0 ? (c.voice_id ?? gen.voice_id) : null);
               }}
             />
             <p className="mt-3 text-xs text-faint">

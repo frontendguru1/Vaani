@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.config import get_settings
 from app.engines import registry
 from app.engines.base import EngineError, VoiceProfile
-from app.models import Generation, Job, Voice, VoiceEngineProfile, VoiceSample
+from app.models import Generation, GenerationChunk, Job, Voice, VoiceEngineProfile, VoiceSample
 from app.services import audio, storage, transcription
 from app.services.errors import Invalid, NotFound
 from app.services.jobs import JobContext, get_runner, job_handler, on_job_failure
@@ -214,6 +214,9 @@ def delete_voice(session: Session, voice_id: str) -> DeleteReport:
             "This voice is being processed right now — try again in a moment.", code="busy"
         )
     gen_ids = list(session.scalars(select(Generation.id).where(Generation.voice_id == voice_id)))
+    # Dialogues where this voice spoke some lines contain their voice too: delete those.
+    spoke_in = select(GenerationChunk.generation_id).where(GenerationChunk.voice_id == voice_id)
+    gen_ids += [g for g in session.scalars(spoke_in.distinct()) if g not in gen_ids]
     # Drop cached latents held in engine memory.
     for eng in registry.all_engines():
         cache = getattr(eng, "_latents", None)
@@ -221,6 +224,10 @@ def delete_voice(session: Session, voice_id: str) -> DeleteReport:
             for key in [k for k in cache if str(storage.voice_dir(voice_id)) in str(k)]:
                 cache.pop(key, None)
 
+    for gid in gen_ids:  # dialogues owned by another voice aren't covered by the cascade
+        g = session.get(Generation, gid)
+        if g is not None and g.voice_id != voice_id:
+            session.delete(g)
     session.delete(voice)  # cascades samples, profiles, generations, chunks
     # Jobs reference the voice loosely; remove them too so nothing names it.
     for job in session.scalars(select(Job).where(Job.voice_id == voice_id)):

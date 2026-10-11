@@ -76,7 +76,9 @@ function HistoryItem({ gen, onChanged }: { gen: Generation; onChanged: () => voi
     <motion.li layout variants={variants.fadeUp} exit={{ opacity: 0, x: -30, transition: transition.exit }} className="glass relative overflow-hidden p-5">
       <span aria-hidden className="absolute inset-y-0 left-0 w-1" style={{ background: colors.gradient }} />
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <p className="text-sm font-medium" style={{ color: colors.solid }}>{gen.voice_name ?? "Deleted voice"}</p>
+        <p className="text-sm font-medium" style={{ color: colors.solid }}>
+          {gen.speakers.length > 1 ? `Dialogue: ${gen.speakers.join(", ")}` : (gen.speakers[0] ?? gen.voice_name ?? "Deleted voice")}
+        </p>
         <p className="text-xs text-faint">
           {relativeDate(gen.created_at)}
           {gen.status === "done" && gen.compute_seconds != null && <>, made in {gen.compute_seconds.toFixed(1)}s</>}
