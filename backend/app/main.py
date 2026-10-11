@@ -28,12 +28,21 @@ log = logging.getLogger("vaani")
 async def lifespan(_app: FastAPI):
     settings = get_settings()
     settings.ensure_dirs()
-    # Apply pending migrations on every start, including dev hot-reloads. Otherwise new code
-    # can run against an old schema (this happened once: deletes and playback failed with
-    # "no such column" until `vaani migrate` was run by hand).
-    from app.cli import upgrade_to_head
+    # Never auto-apply migrations here: on a dev hot-reload this applied a migration while
+    # it was still being written (2026-10-11) and half-migrated the database. `vaani-dev`
+    # migrates once at process start; here we only check and report loudly.
+    from app.cli import schema_is_current
 
-    upgrade_to_head()
+    try:
+        current, db_rev, head = schema_is_current()
+        if not current:
+            log.error(
+                "Database schema is behind (db=%s, code=%s). Run: uv run vaani migrate",
+                db_rev,
+                head,
+            )
+    except Exception:  # noqa: BLE001
+        log.exception("could not check the database schema")
     log.info("Vaani %s | data=%s | db=%s", __version__, settings.data_dir, settings.db_url)
     runner = get_runner()
     runner.start()

@@ -21,8 +21,15 @@ def health(session: Session = Depends(get_session)) -> HealthResponse:
     except Exception:  # noqa: BLE001 - health must never raise
         db_ok = False
     ffmpeg = system.ffmpeg_info()
+    try:
+        from app.cli import schema_is_current
+
+        schema_ok = schema_is_current()[0]
+    except Exception:  # noqa: BLE001
+        schema_ok = False
     return HealthResponse(
-        status="ok" if db_ok and ffmpeg.available else "degraded",
+        status="ok" if db_ok and ffmpeg.available and schema_ok else "degraded",
+        schema_current=schema_ok,
         app="vaani",
         version=__version__,
         database=db_ok,

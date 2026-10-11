@@ -25,3 +25,12 @@ def test_health_degrades_without_ffmpeg(monkeypatch):
 
 def test_cpu_preference_is_respected():
     assert system.device_info("cpu").preferred == "cpu"
+
+
+def test_health_reports_a_schema_that_is_behind(monkeypatch):
+    import app.cli as cli
+
+    monkeypatch.setattr(cli, "schema_is_current", lambda url=None: (False, "old", "new"))
+    with TestClient(app) as client:
+        body = client.get("/api/v1/health").json()
+    assert body["schema_current"] is False and body["status"] == "degraded"

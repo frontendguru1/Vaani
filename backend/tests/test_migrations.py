@@ -51,3 +51,49 @@ def test_sqlite_runs_in_wal_mode(tmp_path):
         mode = conn.exec_driver_sql("PRAGMA journal_mode").scalar()
     engine.dispose()
     assert mode == "wal"
+
+
+def test_table_rebuild_migrations_keep_child_rows(tmp_path):
+    """Regression: SQLite batch mode rebuilds a table by DROPping it; with foreign keys ON
+    that cascaded and deleted every child row (all generation_chunks when the batches
+    migration rebuilt `generations`). env.py turns foreign keys off while migrating."""
+    from sqlalchemy import text
+
+    url = _url(tmp_path)
+    cfg = alembic_config(url)
+    command.upgrade(cfg, "06f5dbbf761c")  # the revision before `batches`
+    engine = make_engine(url)
+    now = "2026-10-11 00:00:00"
+    with engine.begin() as c:
+        c.execute(
+            text(
+                "INSERT INTO voices (id,name,language,description,consent_note,status,"
+                "speech_seconds,sort_order,source,created_at,updated_at) VALUES "
+                "('v1','V','en','','ok consent note','ready',0,0,'user',:t,:t)"
+            ),
+            {"t": now},
+        )
+        c.execute(
+            text(
+                "INSERT INTO generations (id,voice_id,engine,language,script,settings,"
+                "status,chunk_count,created_at,updated_at) VALUES "
+                "('g1','v1','xtts','en','Hi.','{}','done',1,:t,:t)"
+            ),
+            {"t": now},
+        )
+        c.execute(
+            text(
+                "INSERT INTO generation_chunks (id,generation_id,idx,text,char_start,"
+                "char_end,pause_after_ms,status,created_at,updated_at) VALUES "
+                "('c1','g1',0,'Hi.',0,3,0,'done',:t,:t)"
+            ),
+            {"t": now},
+        )
+    engine.dispose()
+    command.upgrade(cfg, "head")  # rebuilds `generations` to add its batch foreign key
+    engine = make_engine(url)
+    with engine.connect() as c:
+        assert c.execute(text("SELECT count(*) FROM generation_chunks")).scalar() == 1
+        assert c.execute(text("SELECT count(*) FROM generations")).scalar() == 1
+        assert c.exec_driver_sql("PRAGMA foreign_keys").scalar() == 1  # back on for the app
+    engine.dispose()
