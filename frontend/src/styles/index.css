@@ -1,0 +1,74 @@
+@import "tailwindcss";
+@import "./tokens.css";
+
+/* Expose tokens to Tailwind utilities (bg-surface-2, text-muted, rounded-xl, font-mono …) */
+@theme inline {
+  --color-bg: var(--color-bg);
+  --color-surface-1: var(--color-surface-1);
+  --color-surface-2: var(--color-surface-2);
+  --color-surface-3: var(--color-surface-3);
+  --color-glass: var(--color-glass);
+  --color-line: var(--color-border);
+  --color-ink: var(--color-text);
+  --color-muted: var(--color-text-muted);
+  --color-faint: var(--color-text-faint);
+  --color-violet: var(--color-violet);
+  --color-violet-soft: var(--color-violet-soft);
+  --color-cyan: var(--color-cyan);
+  --color-good: var(--color-good);
+  --color-okay: var(--color-okay);
+  --color-poor: var(--color-poor);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --font-deva: var(--font-devanagari);
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+  body {
+    margin: 0;
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible {
+    outline: none;
+    box-shadow: var(--glow-focus);
+    border-radius: var(--radius-sm);
+  }
+  :lang(hi) {
+    font-family: var(--font-devanagari);
+  }
+}
+
+@layer components {
+  .glass {
+    background: var(--color-glass);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-card);
+    backdrop-filter: blur(var(--blur-glass)) saturate(140%);
+    -webkit-backdrop-filter: blur(var(--blur-glass)) saturate(140%);
+  }
+  .text-gradient {
+    background: var(--gradient-text);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .btn-primary {
+    background: var(--gradient-primary);
+    color: white;
+    border-radius: var(--radius-full);
+    box-shadow: var(--glow-primary);
+  }
+}

@@ -1,0 +1,68 @@
+/*
+ * Vaani design tokens — the ONLY place colours, radii, shadows and blurs are defined.
+ * Dark is the only theme today. A light theme later = a second block overriding these
+ * variables under [data-theme="light"]; components never hard-code values.
+ */
+:root {
+  color-scheme: dark;
+
+  /* Ink surfaces: violet-black, never pure #000 */
+  --color-bg: #08071a;
+  --color-surface-1: #0f0d24;
+  --color-surface-2: #16132f;
+  --color-surface-3: #1e1a3d;
+  --color-glass: rgb(255 255 255 / 0.045);
+  --color-glass-strong: rgb(255 255 255 / 0.075);
+  --color-border: rgb(255 255 255 / 0.09);
+  --color-border-strong: rgb(255 255 255 / 0.16);
+  --color-highlight: rgb(255 255 255 / 0.06); /* inner top highlight on glass */
+
+  /* Text — AA-checked against --color-bg / --color-surface-2 */
+  --color-text: #f1effb;
+  --color-text-muted: #a8a3c7; /* ≈ 7.9:1 on bg */
+  --color-text-faint: #7d78a0; /* ≈ 4.6:1 on bg; labels only */
+
+  /* Accents */
+  --color-violet: #8b5cf6;
+  --color-violet-soft: #a78bfa;
+  --color-indigo: #6366f1;
+  --color-cyan: #22d3ee;
+  --color-pink: #f472b6;
+
+  /* Status */
+  --color-good: #34d399;
+  --color-okay: #fbbf24;
+  --color-poor: #f87171;
+
+  /* Gradients */
+  --gradient-primary: linear-gradient(135deg, #8b5cf6 0%, #6366f1 50%, #22d3ee 100%);
+  --gradient-text: linear-gradient(100deg, #f1effb 0%, #c4b5fd 45%, #67e8f9 100%);
+
+  /* Aurora blobs (kept low-opacity so text contrast is unaffected) */
+  --aurora-1: rgb(139 92 246 / 0.35);
+  --aurora-2: rgb(34 211 238 / 0.22);
+  --aurora-3: rgb(99 102 241 / 0.28);
+
+  /* Radii */
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+  --radius-full: 9999px;
+
+  /* Shadows & glows */
+  --shadow-card: 0 1px 0 0 var(--color-highlight) inset, 0 20px 50px -20px rgb(0 0 0 / 0.6);
+  --shadow-lift: 0 1px 0 0 var(--color-highlight) inset, 0 28px 60px -18px rgb(0 0 0 / 0.7);
+  --glow-primary: 0 0 0 1px rgb(139 92 246 / 0.4), 0 8px 30px -6px rgb(139 92 246 / 0.55);
+  --glow-focus: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-violet-soft),
+    0 0 18px 2px rgb(167 139 250 / 0.45);
+
+  /* Blur — modest values keep the M1 GPU happy */
+  --blur-glass: 14px;
+  --blur-aurora: 90px;
+
+  /* Typography */
+  --font-sans: "Inter Variable", "Noto Sans Devanagari", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", monospace;
+  --font-devanagari: "Noto Sans Devanagari", "Inter Variable", sans-serif;
+}
