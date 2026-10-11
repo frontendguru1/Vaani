@@ -37,14 +37,23 @@ def fade(audio: np.ndarray, sr: int, ms: int = 8) -> np.ndarray:
 
 
 def stitch(
-    chunks: list[np.ndarray], pauses_ms: list[int], sr: int, *, trim: bool = True
+    chunks: list[np.ndarray],
+    pauses_ms: list[int],
+    sr: int,
+    *,
+    trim: bool = True,
+    lead_ms: int = 0,
 ) -> tuple[np.ndarray, list[float]]:
-    """Return (audio, offsets) where offsets[i] is where chunk i starts, in seconds."""
+    """Return (audio, offsets) where offsets[i] is where chunk i starts, in seconds.
+    `lead_ms` of silence goes before the first chunk (a [pause] at the start of a script)."""
     if len(chunks) != len(pauses_ms):
         raise ValueError("need one pause per chunk")
     parts: list[np.ndarray] = []
     offsets: list[float] = []
     cursor = 0
+    if lead_ms > 0:
+        parts.append(np.zeros(int(sr * lead_ms / 1000), dtype=np.float32))
+        cursor = len(parts[0])
     for chunk, pause in zip(chunks, pauses_ms, strict=True):
         c = trim_silence(chunk, sr) if trim else chunk
         c = fade(np.asarray(c, dtype=np.float32), sr)

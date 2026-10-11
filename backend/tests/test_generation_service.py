@@ -172,3 +172,41 @@ def test_transcript_engine_fails_fast_without_a_transcribed_clip(db, monkeypatch
     assert e.value.code == "needs_transcript"
     assert "12 seconds" in e.value.message
     assert s.scalar(select(Job).where(Job.kind == "generate")) is None  # nothing queued
+
+
+def test_pause_markers_end_to_end(db):
+    s, runner = db
+    voice, _ = make_voice(s, runner)
+    script = "[pause 1s] First line is spoken here. [pause 2s] Second line is spoken here."
+    gen, job = generation.create_generation(s, voice_id=voice.id, script=script, language="en")
+    assert gen.settings["lead_pause_ms"] == 1000
+    runner.run_one(job.id)
+    s.expire_all()
+    g = generation.get_generation(s, gen.id)
+    assert g.status == "done", g.error
+    assert [c.text for c in g.chunks] == [
+        "First line is spoken here.",
+        "Second line is spoken here.",
+    ]
+    assert g.chunks[0].pause_after_ms == 2000
+    assert g.chunks[0].offset_seconds == pytest.approx(1.0, abs=0.01)  # after the lead-in
+    gap = g.chunks[1].offset_seconds - (g.chunks[0].offset_seconds + 0)
+    assert gap > 2.0  # chunk 0 audio + the 2 s pause
+
+
+def test_bad_pause_marker_is_a_clear_error(db):
+    s, runner = db
+    voice, _ = make_voice(s, runner)
+    with pytest.raises(Invalid) as e:
+        generation.create_generation(
+            s, voice_id=voice.id, script="Hi there. [pause soon] Bye.", language="en"
+        )
+    assert e.value.code == "bad_pause" and "[pause soon]" in e.value.message
+    with pytest.raises(Invalid, match="only has pauses"):
+        generation.create_generation(s, voice_id=voice.id, script="[pause 2s]", language="en")
+
+
+def test_stitch_lead_in():
+    sr = 1000
+    out, offsets = stitch([np.ones(100, dtype=np.float32) * 0.5], [0], sr, trim=False, lead_ms=500)
+    assert len(out) == 600 and offsets == [0.5] and np.all(out[:500] == 0)

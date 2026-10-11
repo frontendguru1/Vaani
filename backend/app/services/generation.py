@@ -15,7 +15,7 @@ from app.config import get_settings
 from app.engines import registry
 from app.models import Generation, GenerationChunk, Job, Voice
 from app.services import audio, pronunciation, storage
-from app.services.chunking import chunk_text
+from app.services.chunking import PauseMarkerError, chunk_script
 from app.services.errors import Invalid, NotFound
 from app.services.jobs import JobContext, get_runner, job_handler, on_job_failure
 from app.services.stitching import stitch
@@ -90,12 +90,24 @@ def create_generation(
 
     clean = _clean_settings(settings)
     cfg = get_settings()
-    chunks = chunk_text(
-        script,
-        max_chars=eng.max_chunk_chars(language),
-        sentence_pause_ms=clean.get("sentence_pause_ms", cfg.pause_sentence_ms),
-        paragraph_pause_ms=clean.get("paragraph_pause_ms", cfg.pause_paragraph_ms),
-    )
+    try:
+        plan = chunk_script(
+            script,
+            max_chars=eng.max_chunk_chars(language),
+            sentence_pause_ms=clean.get("sentence_pause_ms", cfg.pause_sentence_ms),
+            paragraph_pause_ms=clean.get("paragraph_pause_ms", cfg.pause_paragraph_ms),
+        )
+    except PauseMarkerError as exc:
+        raise Invalid(
+            f"Couldn’t read the pause {exc}. Write it like [pause 1s], [pause 1.5s] or "
+            "[pause 500ms].",
+            code="bad_pause",
+        ) from exc
+    chunks = plan.chunks
+    if not chunks:
+        raise Invalid("There’s nothing to say: the script only has pauses.", code="empty_script")
+    if plan.lead_ms:
+        clean["lead_pause_ms"] = plan.lead_ms  # silence before the first sentence
     gen = Generation(
         voice_id=voice_id,
         engine=engine_name,
@@ -258,7 +270,12 @@ def run_generation(ctx: JobContext, payload: dict[str, Any]) -> dict[str, Any]:
             )
 
         ctx.progress(0.97, "stitching", "Stitching audio…")
-        stitched, offsets = stitch(arrays, [c.pause_after_ms for c in chunks], sr)
+        stitched, offsets = stitch(
+            arrays,
+            [c.pause_after_ms for c in chunks],
+            sr,
+            lead_ms=int(gen.settings.get("lead_pause_ms", 0)),
+        )
         final = audio.write_wav(out_dir / "output.wav", stitched, sr)
         for ch, off in zip(chunks, offsets, strict=True):
             ch.offset_seconds = off

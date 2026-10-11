@@ -90,3 +90,87 @@ def test_ellipsis_and_quotes():
 def test_rejects_tiny_max_chars():
     with pytest.raises(ValueError):
         chunk_text("abc", max_chars=5)
+
+
+# --- pause markers ---------------------------------------------------------
+
+from app.services.chunking import PauseMarkerError, chunk_script, parse_pause  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    "arg,ms",
+    [
+        ("", 1000),
+        ("1s", 1000),
+        (" 1.5 s ", 1500),
+        ("2", 2000),
+        ("500ms", 500),
+        ("2 sec", 2000),
+        ("3 seconds", 3000),
+        ("250 milliseconds", 250),
+        ("60s", 10_000),
+    ],
+)
+def test_parse_pause(arg, ms):
+    assert parse_pause(arg) == ms
+
+
+@pytest.mark.parametrize("arg", ["abc", "1 minute", "-1s", "1s 2s"])
+def test_parse_pause_rejects_nonsense(arg):
+    with pytest.raises(PauseMarkerError):
+        parse_pause(arg)
+
+
+def test_marker_between_sentences_sets_the_pause():
+    s = "First sentence is right here. [pause 2s] Second sentence is right here."
+    plan = chunk_script(s, sentence_pause_ms=300)
+    assert [c.text for c in plan.chunks] == [
+        "First sentence is right here.",
+        "Second sentence is right here.",
+    ]
+    assert [c.pause_after_ms for c in plan.chunks] == [2000, 0]
+    assert plan.pause_count == 1 and plan.pause_total_ms == 2000
+    for c in plan.chunks:
+        assert s[c.start : c.end] == c.text  # spans still point into the script
+
+
+def test_marker_inside_a_sentence_splits_it():
+    s = "And the winner is [pause 1.5s] my grandmother!"
+    plan = chunk_script(s, min_chars=5)
+    assert [c.text for c in plan.chunks] == ["And the winner is", "my grandmother!"]
+    assert plan.chunks[0].pause_after_ms == 1500
+
+
+def test_consecutive_markers_add_up_and_case_is_ignored():
+    s = "Ready to begin now. [PAUSE 1s][pause 500ms] [Pause] Here we go, everybody."
+    plan = chunk_script(s)
+    assert plan.chunks[0].pause_after_ms == 2500
+
+
+def test_leading_marker_becomes_lead_in_and_trailing_is_dropped():
+    s = "[pause 2s] Hello there, how are you doing? [pause 3s]"
+    plan = chunk_script(s)
+    assert plan.lead_ms == 2000
+    assert len(plan.chunks) == 1 and plan.chunks[0].pause_after_ms == 0
+
+
+def test_hindi_with_markers():
+    s = "आज मौसम बहुत सुहाना है। [pause 1s] चलो बाहर टहलने चलते हैं।"
+    plan = chunk_script(s, min_chars=5)
+    assert [c.text for c in plan.chunks] == ["आज मौसम बहुत सुहाना है।", "चलो बाहर टहलने चलते हैं।"]
+    assert plan.chunks[0].pause_after_ms == 1000
+
+
+def test_bad_markers_are_reported_not_spoken():
+    with pytest.raises(PauseMarkerError, match=r"\[pause abc\]"):
+        chunk_script("Hello there friend. [pause abc] Bye now, my friend.")
+
+
+def test_no_markers_matches_chunk_text():
+    s = "One sentence that is long enough. Another sentence that is long enough."
+    assert chunk_script(s).chunks == chunk_text(s)
+    assert chunk_script(s).lead_ms == 0
+
+
+def test_only_markers_gives_no_chunks():
+    assert chunk_script("[pause 1s] [pause 2s]").chunks == []

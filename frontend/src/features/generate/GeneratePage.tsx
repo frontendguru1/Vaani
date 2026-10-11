@@ -1,8 +1,8 @@
 import * as Slider from "@radix-ui/react-slider";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "motion/react";
-import { Plus, Sparkles, WandSparkles } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Plus, Sparkles, Timer, WandSparkles } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { PageHeader } from "../../components/AppShell";
 import { AudioPlayer } from "../../components/AudioPlayer";
@@ -15,7 +15,8 @@ import { formatTime, LANGUAGE_NAMES } from "../../lib/format";
 import { useJobEvents } from "../../lib/useJobEvents";
 import { voiceColors } from "../../lib/voiceColor";
 import { spring, variants } from "../../motion/tokens";
-import { ScriptEditor } from "./ScriptEditor";
+import { ScriptEditor, type ScriptEditorHandle } from "./ScriptEditor";
+import { findPauses, pauseLabel } from "../../lib/pauses";
 import { AppliedChips } from "../pronunciation/PronunciationPage";
 import { useDebounced } from "../../lib/useDebounced";
 
@@ -121,6 +122,10 @@ export function GeneratePage() {
   const working = Boolean(job) && !state.done;
   const ev = state.latest;
 
+  const editor = useRef<ScriptEditorHandle>(null);
+  const pauses = useMemo(() => findPauses(script), [script]);
+  const badPauses = pauses.filter((p) => p.ms == null);
+  const pauseTotal = pauses.reduce((t, p) => t + (p.ms ?? 0), 0);
   const debouncedScript = useDebounced(script, 600);
   const pron = useQuery({
     queryKey: ["pron-preview", debouncedScript, language],
@@ -142,6 +147,7 @@ export function GeneratePage() {
     setError(null);
     if (!voice) return setError("Pick a voice first.");
     if (!chars) return setError("Type or paste a script first.");
+    if (badPauses.length) return setError(`Can’t read ${badPauses[0].raw}. Write it like [pause 1s] or [pause 500ms].`);
     setGen(null);
     setPlaySpan(null);
     try {
@@ -194,10 +200,29 @@ export function GeneratePage() {
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
         {/* Script */}
         <section className="glass p-3 sm:p-4" aria-label="Script editor">
-          <ScriptEditor value={script} onChange={setScript} highlight={highlight} readOnly={working} color={colors.solid} />
-          <div className="flex flex-wrap items-center justify-between gap-3 px-2 pt-3 text-xs text-faint">
+          <ScriptEditor ref={editor} value={script} onChange={setScript} highlight={highlight} readOnly={working} color={colors.solid} />
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-2 pt-3 text-xs text-faint">
             <span className="font-mono">{chars.toLocaleString()} / 20,000</span>
-            <span>Blank lines make longer pauses between paragraphs.</span>
+            <div className="flex items-center gap-1" role="group" aria-label="Insert a pause">
+              <Timer size={13} aria-hidden />
+              <span className="mr-1">Insert pause</span>
+              {[500, 1000, 2000, 3000].map((ms) => (
+                <button key={ms} type="button" disabled={working}
+                  onClick={() => editor.current?.insert(`[pause ${pauseLabel(ms)}]`)}
+                  className="rounded-full border border-line px-2 py-0.5 font-mono text-[11px] text-muted transition-colors hover:border-[var(--color-cyan)] hover:text-ink disabled:opacity-40">
+                  {pauseLabel(ms)}
+                </button>
+              ))}
+            </div>
+            <span className="ml-auto" aria-live="polite">
+              {badPauses.length > 0 ? (
+                <span className="text-poor">Can’t read {badPauses.map((p) => p.raw).join(", ")}. Write it like [pause 1s].</span>
+              ) : pauses.length > 0 ? (
+                <span><span className="font-mono text-muted">{pauses.length}</span> {pauses.length === 1 ? "pause" : "pauses"}, <span className="font-mono text-muted">{pauseLabel(pauseTotal)}</span> in total</span>
+              ) : (
+                "Blank lines make longer pauses between paragraphs."
+              )}
+            </span>
           </div>
           {pron.data && pron.data.applied.length > 0 && script.trim() && (
             <div className="flex flex-wrap items-center gap-2 px-2 pt-3">

@@ -20,11 +20,12 @@ A personal voice-cloning studio that runs **entirely on your Mac**. Give it a fe
 - A required consent note per voice
 - Generate speech from long scripts, with natural pauses and live progress
 - Generation history with replay, regenerate and download (WAV/MP3)
+- Pause markers in scripts: `[pause 1s]`, `[pause 500ms]`, `[pause 2]` (seconds) or just `[pause]` (1 second), up to 10 seconds each. They show as chips in the editor and can be inserted with one click
 - A pronunciation dictionary for names and acronyms ("Vaani → Vaa-nee", "IIT → I I T"), with a live preview of what the voice will be given
 - Automatic transcription of every clip (Whisper, on the Apple GPU), with a Clips view to check and correct what was heard
 - A dark, animated interface that respects reduced-motion settings
 
-**Later:** speaking-style variants, pause markers, multi-voice dialogue, batch generation, subtitle export, and side-by-side engine comparison.
+**Later:** speaking-style variants, multi-voice dialogue, batch generation, subtitle export, and side-by-side engine comparison.
 
 ## Requirements
 
@@ -184,5 +185,5 @@ Vaani only answers requests addressed to `localhost`/`127.0.0.1`, and refuses up
 1. 🎧 Quality spike: the benchmark is built; the listening test on a real voice is still to do
 2. ✅ Backend core: voices, cleanup, quality checks, generation, history
 3. ✅ Frontend: voice library, recording, generation studio, history
-4. 🚧 Polish and extras: auto-transcription and pronunciation dictionary done
+4. 🚧 Polish and extras: auto-transcription, pronunciation dictionary and pause markers done
 5. Notes on fine-tuning (documentation only)
